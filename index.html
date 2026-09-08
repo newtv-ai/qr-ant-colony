@@ -9,34 +9,41 @@
 </head>
 <body>
   <main class="app-shell">
-    <header class="hero">
-      <div>
-        <p class="eyebrow">QR ANT COLONY · PROTOTYPE</p>
-        <h1>如果你穿越成一只蚂蚁，<br />这个二维码就是你的世界。</h1>
-        <p class="subtitle">第一章从一只小小的工蚁开始：寻找食物、建立运输线，让你的蚁群从 3 只成长到 10 只。</p>
+    <header class="topbar">
+      <div class="brand-block">
+        <div class="brand-line">
+          <span class="brand-mark">QR ANT COLONY</span>
+          <span class="status-badge" id="gameStateBadge">第1关 · 教学</span>
+        </div>
+        <h1>二维码蚁穴</h1>
       </div>
-      <div class="status-badge" id="gameStateBadge">第1关 · 教学</div>
-    </header>
 
-    <section class="control-panel" aria-label="二维码内容设置">
-      <label for="qrInput">二维码内容</label>
-      <div class="input-row">
-        <input id="qrInput" type="text" value="https://github.com/newtv-ai/qr-ant-colony" autocomplete="off" spellcheck="false" />
+      <section class="qr-toolbar" aria-label="二维码内容设置">
+        <input id="qrInput" type="text" value="https://github.com/newtv-ai/qr-ant-colony" autocomplete="off" spellcheck="false" aria-label="二维码内容" />
         <button id="generateBtn" class="primary">生成新蚁穴</button>
         <button id="scanBtn" class="secondary">扫码模式</button>
-      </div>
-      <p class="hint">游戏过程中会自动检测二维码可读性；「扫码模式」仍作为保险，显示纯黑白二维码。 <span id="scanHealth" class="scan-health checking">正在检测游戏画面...</span></p>
-    </section>
+      </section>
 
-    <section class="game-layout">
-      <div class="board-wrap">
-        <canvas id="gameCanvas" width="900" height="900" aria-label="二维码蚁穴游戏画面"></canvas>
-        <div id="toast" class="toast" role="status" aria-live="polite"></div>
+      <div class="scan-wrap">
+        <span id="scanHealth" class="scan-health checking">正在检测游戏画面...</span>
+        <small>游戏中实时检测扫码可读性</small>
+      </div>
+    </header>
+
+    <section class="workspace">
+      <div class="board-zone">
+        <div class="board-wrap">
+          <canvas id="gameCanvas" width="900" height="900" aria-label="二维码蚁穴游戏画面"></canvas>
+          <div id="toast" class="toast" role="status" aria-live="polite"></div>
+        </div>
       </div>
 
       <aside class="side-panel">
         <div class="chapter-card">
-          <div class="chapter-topline"><span id="chapterNumber">第 1 关</span><strong id="chapterTitle">第一顿饭</strong></div>
+          <div class="chapter-topline">
+            <span id="chapterNumber">第 1 关</span>
+            <strong id="chapterTitle">第一顿饭</strong>
+          </div>
           <p id="chapterDesc">不限时间。找到食物并带回气味，让工蚁开始运输，把蚁群人口养到 10。</p>
           <div class="population-track"><span id="populationBar"></span></div>
         </div>
@@ -48,30 +55,39 @@
           <div class="stat-card"><span id="statLabel4">发现食物</span><strong id="discoveredCount">0</strong></div>
         </div>
 
+        <div class="mission-card">
+          <div class="card-title-row"><h2>当前任务</h2><span class="key-tip">WASD / ↑↓←→</span></div>
+          <p id="missionText">先熟悉移动，去白色通道里找到第一份食物。</p>
+          <button id="nextLevelBtn" class="level-next" hidden>进入第2关：暴雨来了 →</button>
+        </div>
+
         <div class="buff-card">
           <h2>当前增益</h2>
           <p id="buffText">暂无 · 高等级食物会带来额外效果</p>
         </div>
 
-        <div class="mission-card">
-          <h2>当前任务</h2>
-          <p id="missionText">先熟悉移动，去白色通道里找到第一份食物。</p>
-          <button id="nextLevelBtn" class="level-next" hidden>进入第2关：暴雨来了 →</button>
-        </div>
-
         <div class="legend-card" id="legendCard">
-          <h2>一眼看懂</h2>
-          <div class="legend"><span class="legend-ant player-ant"></span><span>你：黄色蚂蚁</span></div>
-          <div class="legend"><span class="legend-ant worker-ant"></span><span>工蚁：橙色蚂蚁</span></div>
-          <div class="legend"><span>🍩</span><span>Lv.1 甜甜圈 · 2份</span></div><div class="legend"><span>🧁</span><span>Lv.2 杯子蛋糕 · 3份 · 加速15秒</span></div><div class="legend"><span>🍰</span><span>Lv.3 草莓蛋糕 · 5份 · 额外孵化+1</span></div>
-          <div class="legend"><span class="legend-nest"></span><span>蚁穴：绿色圆环</span></div>
-          
+          <h2>图例</h2>
+          <div class="legend"><span class="legend-ant player-ant"></span><span>你</span></div>
+          <div class="legend"><span class="legend-ant worker-ant"></span><span>工蚁</span></div>
+          <div class="legend"><span>🍩</span><span>2份</span></div>
+          <div class="legend"><span>🧁</span><span>3份 · 加速</span></div>
+          <div class="legend"><span>🍰</span><span>5份 · +1人口</span></div>
+          <div class="legend"><span class="legend-nest"></span><span>蚁穴</span></div>
         </div>
 
-        <div class="desktop-help">
-          <h2>操作</h2>
-          <p>电脑：WASD / 方向键<br />Space：咬击（第3关解锁）<br />F：蚁酸（第4关解锁）<br />手机：使用下方方向键</p>
+        <div class="action-bar desktop-actions">
+          <span class="action-label">操作</span>
+          <button id="biteBtn" disabled title="第3关解锁">Space · 🦷 咬</button>
+          <button id="acidBtn" disabled title="第4关解锁">F · 💧 蚁酸</button>
         </div>
+
+        <section class="roadmap">
+          <div class="roadmap-step active" id="roadmap1"><span>1</span><strong>第一顿饭</strong></div>
+          <div class="roadmap-step locked" id="roadmap2"><span>2</span><strong>暴雨</strong></div>
+          <div class="roadmap-step locked" id="roadmap3"><span>3</span><strong>入侵</strong></div>
+          <div class="roadmap-step locked" id="roadmap4"><span>4</span><strong>狩猎</strong></div>
+        </section>
       </aside>
     </section>
 
@@ -85,21 +101,10 @@
         </div>
       </div>
       <div class="action-preview">
-        <button id="biteBtn" disabled title="第3关解锁">🦷 咬</button>
-        <button id="acidBtn" disabled title="第4关解锁">💧 蚁酸</button>
+        <button data-mobile-action="bite" disabled>🦷 咬</button>
+        <button data-mobile-action="acid" disabled>💧 蚁酸</button>
       </div>
     </section>
-
-    <section class="roadmap">
-      <div class="roadmap-step active" id="roadmap1"><span>1</span><strong>第一顿饭</strong><small>食物 · 人口</small></div>
-      <div class="roadmap-step locked" id="roadmap2"><span>2</span><strong>暴雨来了</strong><small>泥土 · 堵水</small></div>
-      <div class="roadmap-step locked" id="roadmap3"><span>3</span><strong>入侵者</strong><small>咬击 · 防守</small></div>
-      <div class="roadmap-step locked" id="roadmap4"><span>4</span><strong>狩猎</strong><small>蚁酸 · 远程</small></div>
-    </section>
-
-    <footer>
-      <p>二维码矩阵本身不被修改；游戏元素只是覆盖层。需要扫码时切换「扫码模式」。</p>
-    </footer>
   </main>
 
   <script src="https://cdn.jsdelivr.net/npm/qrcode-generator@1.4.4/qrcode.min.js" onerror="this.onerror=null;this.src='https://cdnjs.cloudflare.com/ajax/libs/qrcode-generator/1.4.4/qrcode.min.js'"></script>
