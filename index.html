@@ -13,9 +13,9 @@
       <div>
         <p class="eyebrow">QR ANT COLONY · PROTOTYPE</p>
         <h1>如果你穿越成一只蚂蚁，<br />这个二维码就是你的世界。</h1>
-        <p class="subtitle">找到食物 → 把气味带回蚁穴 → 工蚁沿信息素出发 → 在暴雨淹没巢穴前储备足够食物。</p>
+        <p class="subtitle">第一章从一只小小的工蚁开始：寻找食物、建立运输线，让你的蚁群从 3 只成长到 10 只。</p>
       </div>
-      <div class="status-badge" id="gameStateBadge">探索中</div>
+      <div class="status-badge" id="gameStateBadge">第1关 · 教学</div>
     </header>
 
     <section class="control-panel" aria-label="二维码内容设置">
@@ -35,16 +35,27 @@
       </div>
 
       <aside class="side-panel">
+        <div class="chapter-card">
+          <div class="chapter-topline"><span>第 1 关</span><strong>第一顿饭</strong></div>
+          <p>不限时间。找到食物并带回气味，让工蚁开始运输，把蚁群人口养到 10。</p>
+          <div class="population-track"><span id="populationBar"></span></div>
+        </div>
+
         <div class="stats-grid">
-          <div class="stat-card"><span>储备食物</span><strong id="foodScore">0 / 12</strong></div>
-          <div class="stat-card"><span>工蚁数量</span><strong id="workerCount">3</strong></div>
-          <div class="stat-card"><span>暴雨倒计时</span><strong id="rainTimer">70s</strong></div>
+          <div class="stat-card"><span>蚁群人口</span><strong id="populationCount">3 / 10</strong></div>
+          <div class="stat-card"><span>储备食物</span><strong id="foodScore">0</strong></div>
+          <div class="stat-card"><span>运输工蚁</span><strong id="workerCount">2</strong></div>
           <div class="stat-card"><span>发现食物</span><strong id="discoveredCount">0</strong></div>
+        </div>
+
+        <div class="buff-card">
+          <h2>当前增益</h2>
+          <p id="buffText">暂无 · 高等级食物会带来额外效果</p>
         </div>
 
         <div class="mission-card">
           <h2>当前任务</h2>
-          <p id="missionText">探索蚁穴，找到一块食物。</p>
+          <p id="missionText">先熟悉移动，去白色通道里找到第一份食物。</p>
         </div>
 
         <div class="legend-card">
@@ -53,23 +64,36 @@
           <div class="legend"><span class="legend-ant worker-ant"></span><span>工蚁：橙色蚂蚁</span></div>
           <div class="legend"><span>🍩</span><span>Lv.1 甜甜圈 · 2份</span></div><div class="legend"><span>🧁</span><span>Lv.2 杯子蛋糕 · 3份</span></div><div class="legend"><span>🍰</span><span>Lv.3 草莓蛋糕 · 5份</span></div>
           <div class="legend"><span class="legend-nest"></span><span>蚁穴：绿色圆环</span></div>
-          <div class="legend"><span class="legend-water"></span><span>积水：蓝色光点</span></div>
+          
         </div>
 
         <div class="desktop-help">
           <h2>操作</h2>
-          <p>电脑：WASD / 方向键<br />手机：使用下方方向键</p>
+          <p>电脑：WASD / 方向键<br />Space：咬击（第3关解锁）<br />F：蚁酸（第4关解锁）<br />手机：使用下方方向键</p>
         </div>
       </aside>
     </section>
 
     <section class="mobile-controls" aria-label="移动控制">
-      <button data-dir="up" aria-label="向上">▲</button>
-      <div>
-        <button data-dir="left" aria-label="向左">◀</button>
-        <button data-dir="down" aria-label="向下">▼</button>
-        <button data-dir="right" aria-label="向右">▶</button>
+      <div class="dpad">
+        <button data-dir="up" aria-label="向上">▲</button>
+        <div>
+          <button data-dir="left" aria-label="向左">◀</button>
+          <button data-dir="down" aria-label="向下">▼</button>
+          <button data-dir="right" aria-label="向右">▶</button>
+        </div>
       </div>
+      <div class="action-preview">
+        <button disabled title="第3关解锁">🦷 咬</button>
+        <button disabled title="第4关解锁">💧 蚁酸</button>
+      </div>
+    </section>
+
+    <section class="roadmap">
+      <div class="roadmap-step active"><span>1</span><strong>第一顿饭</strong><small>食物 · 人口</small></div>
+      <div class="roadmap-step locked"><span>2</span><strong>暴雨来了</strong><small>泥土 · 堵水</small></div>
+      <div class="roadmap-step locked"><span>3</span><strong>入侵者</strong><small>咬击 · 防守</small></div>
+      <div class="roadmap-step locked"><span>4</span><strong>狩猎</strong><small>蚁酸 · 远程</small></div>
     </section>
 
     <footer>
