@@ -387,7 +387,7 @@
       if (!last || !sameNode(last, player)) returnTrail.push({ r: player.r, c: player.c });
     }
 
-    const food = foods.find(f => f.units > 0 && playerTouchesFood(f));
+    const food = !carriedDiscovery ? foods.find(f => f.units > 0 && playerTouchesFood(f)) : null;
     if (food && !food.discovered) {
       food.discovered = true;
       discovered += 1;
