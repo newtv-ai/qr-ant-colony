@@ -353,3 +353,12 @@ footer { color: #796e60; font-size: 12px; margin-top: 20px; text-align: center; 
 .roadmap-step {
   transition: border-color .16s ease, background .16s ease, transform .16s ease, opacity .16s ease;
 }
+
+
+.action-preview button.ready {
+  cursor: pointer;
+  color: #fff3df;
+  background: rgba(255, 111, 74, .16);
+  border: 1px solid rgba(255, 111, 74, .42);
+}
+.action-preview button.ready:active { transform: translateY(1px) scale(.98); }
