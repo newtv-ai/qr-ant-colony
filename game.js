@@ -8,16 +8,20 @@
   const scanBtn = document.getElementById('scanBtn');
   const foodScoreEl = document.getElementById('foodScore');
   const workerCountEl = document.getElementById('workerCount');
-  const rainTimerEl = document.getElementById('rainTimer');
+  const populationCountEl = document.getElementById('populationCount');
+  const populationBarEl = document.getElementById('populationBar');
+  const buffTextEl = document.getElementById('buffText');
   const discoveredCountEl = document.getElementById('discoveredCount');
   const missionTextEl = document.getElementById('missionText');
   const gameStateBadge = document.getElementById('gameStateBadge');
   const toastEl = document.getElementById('toast');
 
-  const TARGET_FOOD = 12;
-  const RAIN_START_SECONDS = 70;
+  const POPULATION_TARGET = 10;
+  const START_POPULATION = 3;
+  const FOOD_PER_BIRTH = 2;
   const QUIET = 4;
   const MOVE_COOLDOWN = 55;
+  const BOOSTED_MOVE_COOLDOWN = 45;
 
   let qr = null;
   let matrixSize = 0;
@@ -31,17 +35,17 @@
   let pheromoneRoutes = [];
   let discovered = 0;
   let storedFood = 0;
-  let workerLimit = 3;
+  let population = START_POPULATION;
+  let bonusPopulation = 0;
+  let workerLimit = START_POPULATION - 1;
   let scanMode = false;
   let status = 'playing';
-  let startTime = performance.now();
   let lastMoveTime = 0;
-  let rainStarted = false;
-  let rainFrontier = [];
-  let flooded = new Set();
-  let lastFloodTick = 0;
   let toastTimer = null;
   let carriedDiscovery = null;
+  let returnTrail = [];
+  let speedBoostUntil = 0;
+  let activeBuffLabel = '';
   let renderRequest = null;
 
   function nodeKey(r, c) { return `${r},${c}`; }
@@ -301,32 +305,45 @@
     pheromoneRoutes = [];
     discovered = 0;
     storedFood = 0;
-    workerLimit = 3;
+    population = START_POPULATION;
+    bonusPopulation = 0;
+    workerLimit = START_POPULATION - 1;
     scanMode = false;
     status = 'playing';
-    startTime = performance.now();
     lastMoveTime = 0;
-    rainStarted = false;
-    rainFrontier = [];
-    flooded = new Set();
-    lastFloodTick = 0;
     carriedDiscovery = null;
+    returnTrail = [];
+    speedBoostUntil = 0;
+    activeBuffLabel = '';
     scanBtn.textContent = '扫码模式';
-    gameStateBadge.textContent = '探索中';
+    gameStateBadge.textContent = '第1关 · 教学';
     gameStateBadge.style.color = '';
-    missionTextEl.textContent = '探索蚁穴，找到一块食物。';
+    missionTextEl.textContent = '先熟悉移动，去白色通道里找到第一份食物。';
     updateUI();
-    showToast('新蚁穴生成完成。先去找食物！');
+    showToast('第1关：第一顿饭。不限时间，把人口养到10只！', 2800);
     requestRender();
   }
 
   function updateUI(now = performance.now()) {
-    foodScoreEl.textContent = `${storedFood} / ${TARGET_FOOD}`;
+    foodScoreEl.textContent = String(storedFood);
     workerCountEl.textContent = String(workerLimit);
+    populationCountEl.textContent = `${population} / ${POPULATION_TARGET}`;
+    populationBarEl.style.width = `${Math.min(100, (population / POPULATION_TARGET) * 100)}%`;
     discoveredCountEl.textContent = String(discovered);
-    const elapsed = (now - startTime) / 1000;
-    const left = Math.max(0, Math.ceil(RAIN_START_SECONDS - elapsed));
-    rainTimerEl.textContent = rainStarted ? '进水中' : `${left}s`;
+
+    if (now < speedBoostUntil) {
+      const seconds = Math.max(1, Math.ceil((speedBoostUntil - now) / 1000));
+      buffTextEl.textContent = `🧁 糖分冲刺：移动更快 · ${seconds}s`;
+    } else if (activeBuffLabel) {
+      buffTextEl.textContent = activeBuffLabel;
+      activeBuffLabel = '';
+    } else {
+      buffTextEl.textContent = '暂无 · 🧁可加速，🍰可额外孵化';
+    }
+  }
+
+  function currentMoveCooldown() {
+    return performance.now() < speedBoostUntil ? BOOSTED_MOVE_COOLDOWN : MOVE_COOLDOWN;
   }
 
   function showToast(message, duration = 1900) {
@@ -352,7 +369,7 @@
   function movePlayer(dir) {
     if (scanMode || status !== 'playing') return;
     const now = performance.now();
-    if (now - lastMoveTime < MOVE_COOLDOWN) return;
+    if (now - lastMoveTime < currentMoveCooldown()) return;
     const target = getMoveTarget(dir);
     player.facing = dir;
     lastMoveTime = now;
@@ -365,10 +382,9 @@
     player.r = target.r;
     player.c = target.c;
 
-    const pKey = nodeKey(player.r, player.c);
-    if (flooded.has(pKey)) {
-      finish(false, '你被积水困住了。');
-      return;
+    if (carriedDiscovery) {
+      const last = returnTrail[returnTrail.length - 1];
+      if (!last || !sameNode(last, player)) returnTrail.push({ r: player.r, c: player.c });
     }
 
     const food = foods.find(f => f.units > 0 && playerTouchesFood(f));
@@ -376,25 +392,37 @@
       food.discovered = true;
       discovered += 1;
       carriedDiscovery = food;
-      missionTextEl.textContent = '已找到食物！现在回到绿色蚁穴，把气味信息带回去。';
-      showToast(`发现 Lv.${food.level || 1} ${food.foodName || '食物'}！回巢报信。`);
+      food.routePickupNode = { r: player.r, c: player.c };
+      returnTrail = [{ r: player.r, c: player.c }];
+      missionTextEl.textContent = '找到食物了！沿你自己的路线回到绿色蚁穴，留下信息素。';
+      showToast(`发现 Lv.${food.level || 1} ${food.foodName || '食物'}！把气味带回巢。`);
     }
 
     if (sameNode(player, nest) && carriedDiscovery) {
-      activateRoute(carriedDiscovery);
+      activateRoute(carriedDiscovery, returnTrail);
       carriedDiscovery = null;
+      returnTrail = [];
     }
     requestRender();
   }
 
-  function activateRoute(food) {
+  function activateRoute(food, playerReturnTrail = []) {
     if (food.routeActivated) return;
-    const route = bfsPath(nest, food);
+
+    let route = null;
+    if (playerReturnTrail.length >= 2) {
+      route = playerReturnTrail.slice().reverse();
+      if (!sameNode(route[0], nest)) route.unshift({ ...nest });
+    } else {
+      route = bfsPath(nest, food.routePickupNode || food);
+    }
+
     if (!route || route.length < 2) return;
     food.routeActivated = true;
+    food.routePath = route;
     pheromoneRoutes.push({ foodId: food.id, path: route });
-    missionTextEl.textContent = '信息素路线建立。工蚁正在搬运；你可以继续寻找下一块食物。';
-    showToast('信息带回蚁穴！工蚁出发。');
+    missionTextEl.textContent = '运输线建立！工蚁会沿你刚才走过的路搬食物。继续探索吧。';
+    showToast('信息素路线建立，工蚁出发！');
     dispatchWorkers();
   }
 
@@ -450,9 +478,10 @@
           if (w.carrying) {
             storedFood += 1;
             w.carrying = false;
+            applyFoodBuff(food);
             maybeGrowColony();
-            if (storedFood >= TARGET_FOOD) {
-              finish(true, '食物储备完成，蚁群撑过了暴雨季！');
+            if (population >= POPULATION_TARGET) {
+              completeLevelOne();
               return;
             }
           }
@@ -474,19 +503,56 @@
       !carriedDiscovery &&
       !remainingUndiscovered &&
       foods.every(f => f.units <= 0) &&
-      storedFood < TARGET_FOOD
+      population < POPULATION_TARGET
     ) {
       spawnMoreFood(3);
     }
   }
 
+  function applyFoodBuff(food) {
+    if (food.buffApplied) return;
+    food.buffApplied = true;
+
+    if (food.kind === 'cupcake') {
+      speedBoostUntil = performance.now() + 15000;
+      activeBuffLabel = '🧁 糖分冲刺结束';
+      showToast('🧁 糖分冲刺：15秒移动加速！', 2200);
+    } else if (food.kind === 'cake') {
+      bonusPopulation += 1;
+      activeBuffLabel = '🍰 高营养：额外孵化 +1';
+      showToast('🍰 高营养！蚁后额外孵化1只。', 2200);
+    }
+  }
+
   function maybeGrowColony() {
-    const nextLimit = 3 + Math.floor(storedFood / 3);
-    if (nextLimit > workerLimit) {
-      workerLimit = Math.min(8, nextLimit);
-      showToast(`殖民地壮大：工蚁上限 ${workerLimit}`);
+    const oldPopulation = population;
+    population = Math.min(
+      POPULATION_TARGET,
+      START_POPULATION + Math.floor(storedFood / FOOD_PER_BIRTH) + bonusPopulation
+    );
+    workerLimit = Math.max(START_POPULATION - 1, population - 1);
+
+    if (population > oldPopulation) {
+      const gained = population - oldPopulation;
+      showToast(`新蚂蚁出生！人口 +${gained} → ${population}/${POPULATION_TARGET}`, 1900);
+      missionTextEl.textContent =
+        population >= 7
+          ? '蚁穴越来越热闹了。再带回一些食物，就能建立稳定殖民地。'
+          : '食物正在变成人口。继续寻找更高等级的食物。';
     }
     updateUI();
+  }
+
+  function completeLevelOne() {
+    if (status !== 'playing') return;
+    status = 'won';
+    population = POPULATION_TARGET;
+    workerLimit = Math.max(workerLimit, population - 1);
+    updateUI();
+    gameStateBadge.textContent = '第1关完成';
+    gameStateBadge.style.color = '#7bf59a';
+    missionTextEl.textContent = '人口达到10只！你已经掌握探索、报信和运输。下一关：搬泥堵住入口，抵御暴雨。';
+    showToast('第1关完成！殖民地诞生了 🐜', 4200);
   }
 
   function spawnMoreFood(count) {
@@ -515,65 +581,6 @@
     showToast('新的食物气味出现在远处。');
   }
 
-  function startRain() {
-    if (rainStarted || status !== 'playing') return;
-    rainStarted = true;
-    gameStateBadge.textContent = '暴雨进水';
-    gameStateBadge.style.color = '#5dc8ff';
-    missionTextEl.textContent = '暴雨开始！积水正在沿通道逼近蚁穴。';
-    showToast('暴雨来了！快把食物搬回来！', 2800);
-
-    const dist = distanceMap(nest);
-    const candidates = component
-      .filter(n => n.r <= 2 || n.c <= 2 || n.r >= matrixSize - 2 || n.c >= matrixSize - 2)
-      .sort(
-        (a, b) =>
-          (dist.get(nodeKey(b.r, b.c)) || 0) - (dist.get(nodeKey(a.r, a.c)) || 0)
-      );
-
-    const start = candidates[0] || component[0];
-    if (start) {
-      const k = nodeKey(start.r, start.c);
-      flooded.add(k);
-      rainFrontier = [start];
-    }
-  }
-
-  function updateRain(now) {
-    if (!rainStarted || scanMode || status !== 'playing') return;
-    if (now - lastFloodTick < 260) return;
-    lastFloodTick = now;
-
-    const next = [];
-    const expansionBudget = Math.max(2, Math.floor(matrixSize / 10));
-    let added = 0;
-
-    while (rainFrontier.length && added < expansionBudget) {
-      const cur = rainFrontier.shift();
-      for (const n of graph.get(nodeKey(cur.r, cur.c)) || []) {
-        const nk = nodeKey(n.r, n.c);
-        if (!componentSet.has(nk) || flooded.has(nk)) continue;
-        flooded.add(nk);
-        next.push(n);
-        added += 1;
-
-        if (sameNode(n, nest)) {
-          finish(false, '积水淹进了蚁穴。');
-          return;
-        }
-        if (added >= expansionBudget) break;
-      }
-    }
-    rainFrontier.push(...next);
-  }
-
-  function finish(win, message) {
-    status = win ? 'won' : 'lost';
-    gameStateBadge.textContent = win ? '蚁群存活' : '巢穴失守';
-    gameStateBadge.style.color = win ? '#7bf59a' : '#ff7777';
-    missionTextEl.textContent = message + ' 点击「生成新蚁穴」再来一局。';
-    showToast(win ? '蚁群活下来了！' : '这一窝没守住，再来一次。', 3600);
-  }
 
   function boardMetrics() {
     const totalModules = matrixSize + QUIET * 2;
@@ -692,7 +699,7 @@
     ctx.restore();
   }
 
-  function drawAntAt(x, y, angle, color, scale = 1, carrying = false) {
+  function drawAntAt(x, y, angle, color, scale = 1, carrying = false, carryingKind = 'donut') {
     const { step } = boardMetrics();
     const s = Math.max(2.8, step * .245) * scale;
     ctx.save();
@@ -722,10 +729,15 @@
     });
 
     if (carrying) {
-      ctx.fillStyle = '#ff7826';
-      ctx.beginPath();
-      ctx.arc(-2.0 * s, 0, s * .72, 0, Math.PI * 2);
-      ctx.fill();
+      const icons = { donut: '🍩', cupcake: '🧁', cake: '🍰' };
+      ctx.save();
+      ctx.translate(-2.25 * s, 0);
+      ctx.rotate(-angle);
+      ctx.font = `${Math.max(10, s * 1.55)}px "Apple Color Emoji","Segoe UI Emoji","Noto Color Emoji",sans-serif`;
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(icons[carryingKind] || '🍩', 0, 0);
+      ctx.restore();
     }
     ctx.restore();
   }
@@ -774,23 +786,11 @@
   function drawWorkers() {
     workers.forEach(w => {
       const p = workerPosition(w);
-      drawAntAt(p.x, p.y, p.angle, '#ff9d35', .82, w.carrying);
+      const food = foods.find(f => f.id === w.foodId);
+      drawAntAt(p.x, p.y, p.angle, '#ff9d35', .82, w.carrying, food?.kind);
     });
   }
 
-  function drawFlood() {
-    if (!flooded.size) return;
-    const { step } = boardMetrics();
-    ctx.save();
-    flooded.forEach(key => {
-      const p = nodeXY(parseKey(key));
-      ctx.fillStyle = 'rgba(49, 174, 255, .42)';
-      ctx.beginPath();
-      ctx.arc(p.x, p.y, Math.max(1.8, step * .14), 0, Math.PI * 2);
-      ctx.fill();
-    });
-    ctx.restore();
-  }
 
   function render() {
     renderRequest = null;
@@ -798,7 +798,6 @@
     renderQR(scanMode);
     if (scanMode) return;
     drawPheromones();
-    drawFlood();
     foods.forEach(drawFood);
     drawNest();
     drawWorkers();
@@ -816,10 +815,7 @@
     lastFrame = now;
 
     if (status === 'playing') {
-      const elapsed = (now - startTime) / 1000;
-      if (!rainStarted && elapsed >= RAIN_START_SECONDS) startRain();
       updateWorkers(dt);
-      updateRain(now);
       updateUI(now);
     }
 
@@ -842,6 +838,15 @@
     if (map[e.code]) {
       e.preventDefault();
       movePlayer(map[e.code]);
+      return;
+    }
+
+    if (e.code === 'Space') {
+      e.preventDefault();
+      showToast('🦷 咬击会在第3关「入侵者」解锁。', 1500);
+    } else if (e.code === 'KeyF') {
+      e.preventDefault();
+      showToast('💧 蚁酸会在第4关「狩猎」解锁。', 1500);
     }
   }
 
