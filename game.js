@@ -28,6 +28,8 @@
   const roadmap2El = document.getElementById('roadmap2');
   const roadmap3El = document.getElementById('roadmap3');
   const roadmap4El = document.getElementById('roadmap4');
+  const biteBtn = document.getElementById('biteBtn');
+  const acidBtn = document.getElementById('acidBtn');
 
   const POPULATION_TARGET = 10;
   const START_POPULATION = 3;
@@ -39,6 +41,9 @@
   const LEVEL2_ENTRANCE_COUNT = 2;
   const MUD_REQUIRED_PER_ENTRANCE = 3;
   const LEVEL2_WORKER_LIMIT = 4;
+  const LEVEL3_SECONDS = 45;
+  const LEVEL3_NEST_HP = 5;
+  const BITE_COOLDOWN = 260;
 
   let qr = null;
   let matrixSize = 0;
@@ -79,6 +84,17 @@
   let floodFrontier = [];
   let lastFloodTick = 0;
   let scanPauseStarted = 0;
+
+  let level3Unlocked = false;
+  let enemies = [];
+  let enemySpawnNodes = [];
+  let level3StartTime = 0;
+  let lastEnemySpawn = 0;
+  let enemySpawnCount = 0;
+  let enemiesDefeated = 0;
+  let nestHp = LEVEL3_NEST_HP;
+  let lastBiteTime = 0;
+  let biteEffectUntil = 0;
 
   function nodeKey(r, c) { return `${r},${c}`; }
   function parseKey(key) { const [r, c] = key.split(',').map(Number); return { r, c }; }
@@ -355,6 +371,9 @@
       } else if (n === 2 && level2Unlocked) {
         el.classList.remove('locked');
         el.classList.add('unlocked');
+      } else if (n === 3 && level3Unlocked) {
+        el.classList.remove('locked');
+        el.classList.add('unlocked');
       } else {
         el.classList.add('locked');
         el.classList.remove('unlocked');
@@ -380,6 +399,10 @@
       <div class="legend"><span class="legend-nest"></span><span>蚁穴：绿色圆环</span></div>
     `;
     nextLevelBtn.hidden = true;
+    biteBtn.disabled = true;
+    biteBtn.classList.remove('ready');
+    acidBtn.disabled = true;
+    acidBtn.classList.remove('ready');
     setRoadmapActive(1);
   }
 
@@ -401,7 +424,34 @@
       <div class="legend"><span class="legend-nest"></span><span>蚁穴：不能被水淹到</span></div>
     `;
     nextLevelBtn.hidden = true;
+    biteBtn.disabled = true;
+    biteBtn.classList.remove('ready');
+    acidBtn.disabled = true;
+    acidBtn.classList.remove('ready');
     setRoadmapActive(2);
+  }
+
+  function setLevelThreeUI() {
+    chapterNumberEl.textContent = '第 3 关';
+    chapterTitleEl.textContent = '入侵者';
+    chapterDescEl.textContent = '守住45秒。敌对大蚂蚁会从二维码边缘冲向蚁穴；Space /「咬」进行近战拦截。';
+    statLabel1El.textContent = '蚁穴生命';
+    statLabel2El.textContent = '击退敌蚁';
+    statLabel3El.textContent = '场上敌蚁';
+    statLabel4El.textContent = '守住时间';
+    legendCardEl.innerHTML = `
+      <h2>一眼看懂</h2>
+      <div class="legend"><span class="legend-ant player-ant"></span><span>你：黄色守卫蚁</span></div>
+      <div class="legend"><span style="color:#f05a4f;font-size:17px">🐜</span><span>红色敌蚁：冲向蚁穴</span></div>
+      <div class="legend"><span style="font-size:17px">🦷</span><span>Space / 咬：面前近距离攻击</span></div>
+      <div class="legend"><span class="legend-nest"></span><span>蚁穴：生命归零则失败</span></div>
+    `;
+    nextLevelBtn.hidden = true;
+    biteBtn.disabled = false;
+    biteBtn.classList.add('ready');
+    acidBtn.disabled = true;
+    acidBtn.classList.remove('ready');
+    setRoadmapActive(3);
   }
 
   function isFinderZoneNode(node) {
@@ -559,6 +609,15 @@
     level2RainStarted = false;
     level2StartTime = 0;
     lastFloodTick = 0;
+    enemies = [];
+    enemySpawnNodes = [];
+    level3StartTime = 0;
+    lastEnemySpawn = 0;
+    enemySpawnCount = 0;
+    enemiesDefeated = 0;
+    nestHp = LEVEL3_NEST_HP;
+    lastBiteTime = 0;
+    biteEffectUntil = 0;
     discovered = 0;
     storedFood = 0;
     population = START_POPULATION;
@@ -582,6 +641,17 @@
   }
 
   function updateUI(now = performance.now()) {
+    if (currentLevel === 3) {
+      const left = Math.max(0, Math.ceil(LEVEL3_SECONDS - (now - level3StartTime) / 1000));
+      populationCountEl.textContent = `${nestHp} / ${LEVEL3_NEST_HP}`;
+      foodScoreEl.textContent = String(enemiesDefeated);
+      workerCountEl.textContent = String(enemies.length);
+      discoveredCountEl.textContent = `${left}s`;
+      populationBarEl.style.width = `${Math.max(0, (nestHp / LEVEL3_NEST_HP) * 100)}%`;
+      buffTextEl.textContent = '🦷 咬击：面对敌蚁近身再按 Space；大型敌蚁需要多咬几次';
+      return;
+    }
+
     if (currentLevel === 2) {
       const sealed = entrances.filter(e => e.sealed).length;
       populationCountEl.textContent = `${sealed} / ${entrances.length || LEVEL2_ENTRANCE_COUNT}`;
@@ -1075,12 +1145,11 @@
     populationBarEl.style.width = '100%';
     missionTextEl.textContent = '两个入口都封住了，蚁穴撑过暴雨。下一关将解锁 Space 咬击，对付入侵的大蚂蚁。';
     buffTextEl.textContent = '✓ 防洪成功：施工与限时玩法已掌握';
-    roadmap2El.classList.add('active');
-    roadmap3El.classList.remove('locked');
-    roadmap3El.classList.add('unlocked');
+    level3Unlocked = true;
+    setRoadmapActive(2);
     nextLevelBtn.hidden = false;
-    nextLevelBtn.disabled = true;
-    nextLevelBtn.textContent = '第3关：入侵者（下一步开发）';
+    nextLevelBtn.disabled = false;
+    nextLevelBtn.textContent = '进入第3关：入侵者 →';
     showToast('第2关完成！蚁穴守住了 🌧️✓', 4200);
   }
 
@@ -1175,6 +1244,271 @@
       ctx.arc(p.x, p.y, Math.max(2.2, step * .18), 0, Math.PI * 2);
       ctx.fill();
     });
+    ctx.restore();
+  }
+
+
+  function pickEnemySpawnNodes(count) {
+    const dist = distanceMap(nest);
+    const candidates = shuffled(component.filter(n => {
+      const nearEdge = n.r <= 2 || n.c <= 2 || n.r >= matrixSize - 2 || n.c >= matrixSize - 2;
+      const d = dist.get(nodeKey(n.r, n.c));
+      return nearEdge && Number.isFinite(d) && d >= Math.max(10, matrixSize * .2) && !isFinderZoneNode(n);
+    }));
+
+    const chosen = [];
+    for (const n of candidates) {
+      if (chosen.every(e => Math.hypot(e.r - n.r, e.c - n.c) >= matrixSize * .28)) {
+        chosen.push({ ...n });
+        if (chosen.length >= count) break;
+      }
+    }
+    if (!chosen.length && candidates.length) chosen.push({ ...candidates[0] });
+    return chosen;
+  }
+
+  function startLevelThree() {
+    if (!qr || !component.length) return;
+
+    currentLevel = 3;
+    level3Unlocked = true;
+    status = 'playing';
+    setLevelThreeUI();
+    gameStateBadge.textContent = '第3关 · 入侵';
+    gameStateBadge.style.color = '#ff7777';
+
+    foods = [];
+    workers = [];
+    pheromoneRoutes = [];
+    mudSources = [];
+    entrances = [];
+    mudWorkers = [];
+    flooded = new Set();
+    carryingMud = false;
+    player = { ...nest, facing: 'right' };
+
+    enemies = [];
+    enemySpawnNodes = pickEnemySpawnNodes(3);
+    enemySpawnCount = 0;
+    enemiesDefeated = 0;
+    nestHp = LEVEL3_NEST_HP;
+    lastEnemySpawn = 0;
+    lastBiteTime = 0;
+    biteEffectUntil = 0;
+    level3StartTime = performance.now();
+    scanPauseStarted = 0;
+
+    if (!enemySpawnNodes.length) {
+      status = 'lost';
+      missionTextEl.textContent = '这张二维码没有找到合适的敌蚁入口，请重新生成蚁穴。';
+      showToast('敌蚁入口生成失败，请重新生成。', 2800);
+      return;
+    }
+
+    missionTextEl.textContent = '敌蚁会直奔绿色蚁穴。站到它们前面，面向敌人按 Space 咬击。';
+    updateUI(level3StartTime);
+    showToast('第3关开始：守住45秒！Space 咬击已解锁 🦷', 3000);
+    spawnEnemy();
+    requestRender();
+  }
+
+  function spawnEnemy() {
+    if (currentLevel !== 3 || status !== 'playing' || !enemySpawnNodes.length) return;
+    const spawn = enemySpawnNodes[enemySpawnCount % enemySpawnNodes.length];
+    const path = bfsPath(spawn, nest);
+    if (!path || path.length < 2) return;
+
+    enemySpawnCount += 1;
+    const big = enemySpawnCount % 5 === 0;
+    enemies.push({
+      id: `enemy-${Date.now()}-${enemySpawnCount}`,
+      path,
+      index: 0,
+      direction: 1,
+      progress: 0,
+      speed: big ? .026 : (.036 + Math.random() * .008),
+      hp: big ? 4 : 2,
+      maxHp: big ? 4 : 2,
+      big
+    });
+  }
+
+  function enemyPosition(enemy) {
+    const a = enemy.path[Math.max(0, Math.min(enemy.path.length - 1, enemy.index))];
+    const b = enemy.path[Math.max(0, Math.min(enemy.path.length - 1, enemy.index + 1))] || a;
+    const pa = nodeXY(a);
+    const pb = nodeXY(b);
+    return {
+      x: pa.x + (pb.x - pa.x) * enemy.progress,
+      y: pa.y + (pb.y - pa.y) * enemy.progress,
+      angle: Math.atan2(pb.y - pa.y, pb.x - pa.x)
+    };
+  }
+
+  function updateEnemies(dt) {
+    if (scanMode || currentLevel !== 3 || status !== 'playing') return;
+    const escaped = new Set();
+
+    enemies.forEach((enemy, idx) => {
+      enemy.progress += enemy.speed * dt;
+      while (enemy.progress >= 1) {
+        enemy.progress -= 1;
+        enemy.index += 1;
+
+        if (enemy.index >= enemy.path.length - 1) {
+          nestHp = Math.max(0, nestHp - (enemy.big ? 2 : 1));
+          escaped.add(idx);
+          showToast(enemy.big ? '大型敌蚁冲进蚁穴！生命 -2' : '敌蚁冲进蚁穴！生命 -1', 1400);
+          if (nestHp <= 0) {
+            failLevelThree();
+            return;
+          }
+          break;
+        }
+      }
+    });
+
+    enemies = enemies.filter((_, i) => !escaped.has(i));
+  }
+
+  function biteAttack() {
+    if (currentLevel !== 3 || status !== 'playing' || scanMode) {
+      if (currentLevel < 3) showToast('🦷 咬击会在第3关「入侵者」解锁。', 1400);
+      return;
+    }
+
+    const now = performance.now();
+    if (now - lastBiteTime < BITE_COOLDOWN) return;
+    lastBiteTime = now;
+    biteEffectUntil = now + 120;
+
+    const pp = nodeXY(player);
+    const facing = {
+      right: [1, 0],
+      left: [-1, 0],
+      down: [0, 1],
+      up: [0, -1]
+    }[player.facing] || [1, 0];
+    const { step } = boardMetrics();
+    const range = Math.max(24, step * 1.9);
+
+    let best = null;
+    enemies.forEach(enemy => {
+      const ep = enemyPosition(enemy);
+      const dx = ep.x - pp.x;
+      const dy = ep.y - pp.y;
+      const d = Math.hypot(dx, dy);
+      if (d > range || d < .01) return;
+      const dot = (dx / d) * facing[0] + (dy / d) * facing[1];
+      if (dot < .25) return;
+      if (!best || d < best.d) best = { enemy, d };
+    });
+
+    if (!best) {
+      showToast('咬空了', 550);
+      requestRender();
+      return;
+    }
+
+    best.enemy.hp -= 1;
+    if (best.enemy.hp <= 0) {
+      enemies = enemies.filter(e => e !== best.enemy);
+      enemiesDefeated += 1;
+      showToast(best.enemy.big ? '击退大型敌蚁！' : '击退敌蚁！', 950);
+    } else {
+      showToast(`咬中！还剩 ${best.enemy.hp} 下`, 700);
+    }
+    requestRender();
+  }
+
+  function updateLevelThree(now, dt) {
+    if (scanMode || status !== 'playing') return;
+
+    const elapsed = now - level3StartTime;
+    const spawnInterval = Math.max(1800, 3400 - Math.floor(elapsed / 12000) * 350);
+    if (!lastEnemySpawn || now - lastEnemySpawn >= spawnInterval) {
+      spawnEnemy();
+      lastEnemySpawn = now;
+    }
+
+    updateEnemies(dt);
+    if (status !== 'playing') return;
+
+    if (elapsed >= LEVEL3_SECONDS * 1000) {
+      completeLevelThree();
+      return;
+    }
+    updateUI(now);
+  }
+
+  function completeLevelThree() {
+    if (status !== 'playing') return;
+    status = 'won';
+    enemies = [];
+    gameStateBadge.textContent = '第3关完成';
+    gameStateBadge.style.color = '#7bf59a';
+    missionTextEl.textContent = '敌蚁退去了。你已经学会近战咬击；下一关将解锁 F 蚁酸，用远程减速来主动狩猎。';
+    buffTextEl.textContent = `✓ 防守成功：共击退 ${enemiesDefeated} 只敌蚁`;
+    populationBarEl.style.width = `${Math.max(0, (nestHp / LEVEL3_NEST_HP) * 100)}%`;
+    roadmap3El.classList.add('active');
+    roadmap4El.classList.remove('locked');
+    roadmap4El.classList.add('unlocked');
+    nextLevelBtn.hidden = false;
+    nextLevelBtn.disabled = true;
+    nextLevelBtn.textContent = '第4关：狩猎（下一步开发）';
+    showToast('第3关完成！守住蚁穴了 🦷✓', 4200);
+  }
+
+  function failLevelThree() {
+    if (status !== 'playing') return;
+    status = 'lost';
+    gameStateBadge.textContent = '蚁穴失守';
+    gameStateBadge.style.color = '#ff7777';
+    missionTextEl.textContent = '敌蚁冲进了蚁穴。不要追着敌人跑，优先站在通向蚁穴的岔路口拦截。';
+    buffTextEl.textContent = '失败提示：咬击只攻击你面前的近距离敌人';
+    nextLevelBtn.hidden = false;
+    nextLevelBtn.disabled = false;
+    nextLevelBtn.textContent = '重试第3关';
+    showToast('蚁穴失守，再试一次！', 3200);
+  }
+
+  function drawEnemies() {
+    enemies.forEach(enemy => {
+      const p = enemyPosition(enemy);
+      drawAntAt(p.x, p.y, p.angle, enemy.big ? '#d43d32' : '#ef6256', enemy.big ? 1.22 : .92, false);
+
+      if (enemy.big || enemy.hp < enemy.maxHp) {
+        const { step } = boardMetrics();
+        const w = Math.max(14, step * .9);
+        const h = Math.max(2, step * .09);
+        ctx.save();
+        ctx.fillStyle = 'rgba(45,16,12,.72)';
+        ctx.fillRect(p.x - w/2, p.y - step * .62, w, h);
+        ctx.fillStyle = '#ff6d61';
+        ctx.fillRect(p.x - w/2, p.y - step * .62, w * (enemy.hp / enemy.maxHp), h);
+        ctx.restore();
+      }
+    });
+  }
+
+  function drawBiteEffect() {
+    if (currentLevel !== 3 || performance.now() > biteEffectUntil) return;
+    const p = nodeXY(player);
+    const { step } = boardMetrics();
+    const offset = step * .72;
+    const pos = {
+      right: [offset, 0],
+      left: [-offset, 0],
+      down: [0, offset],
+      up: [0, -offset]
+    }[player.facing] || [offset, 0];
+
+    ctx.save();
+    ctx.strokeStyle = 'rgba(255, 210, 90, .95)';
+    ctx.lineWidth = Math.max(2, step * .11);
+    ctx.beginPath();
+    ctx.arc(p.x + pos[0], p.y + pos[1], Math.max(8, step * .48), -.7, .7);
+    ctx.stroke();
     ctx.restore();
   }
 
@@ -1427,6 +1761,14 @@
       return;
     }
 
+    if (currentLevel === 3) {
+      drawNest();
+      drawEnemies();
+      drawPlayer();
+      drawBiteEffect();
+      return;
+    }
+
     drawPheromones();
     foods.forEach(drawFood);
     drawNest();
@@ -1446,6 +1788,7 @@
 
     if (status === 'playing') {
       if (currentLevel === 2) updateLevelTwo(now, dt);
+      else if (currentLevel === 3) updateLevelThree(now, dt);
       else {
         updateWorkers(dt);
         updateUI(now);
@@ -1476,7 +1819,7 @@
 
     if (e.code === 'Space') {
       e.preventDefault();
-      showToast('🦷 咬击会在第3关「入侵者」解锁。', 1500);
+      biteAttack();
     } else if (e.code === 'KeyF') {
       e.preventDefault();
       showToast('💧 蚁酸会在第4关「狩猎」解锁。', 1500);
@@ -1488,11 +1831,19 @@
   nextLevelBtn.addEventListener('click', () => {
     if (currentLevel === 1 && level2Unlocked) startLevelTwo();
     else if (currentLevel === 2 && status === 'lost') startLevelTwo();
+    else if (currentLevel === 2 && status === 'won' && level3Unlocked) startLevelThree();
+    else if (currentLevel === 3 && status === 'lost') startLevelThree();
   });
 
   roadmap2El.addEventListener('click', () => {
     if (level2Unlocked && currentLevel !== 2) startLevelTwo();
   });
+
+  roadmap3El.addEventListener('click', () => {
+    if (level3Unlocked && currentLevel !== 3) startLevelThree();
+  });
+
+  biteBtn.addEventListener('click', biteAttack);
 
   document.querySelectorAll('[data-dir]').forEach(btn => {
     let hold = null;
@@ -1541,16 +1892,18 @@
 
   scanBtn.addEventListener('click', () => {
     const now = performance.now();
-    if (!scanMode && currentLevel === 2 && status === 'playing') {
+    if (!scanMode && (currentLevel === 2 || currentLevel === 3) && status === 'playing') {
       scanPauseStarted = now;
-    } else if (scanMode && currentLevel === 2 && status === 'playing' && scanPauseStarted) {
-      level2StartTime += now - scanPauseStarted;
+    } else if (scanMode && status === 'playing' && scanPauseStarted) {
+      const pausedFor = now - scanPauseStarted;
+      if (currentLevel === 2) level2StartTime += pausedFor;
+      if (currentLevel === 3) level3StartTime += pausedFor;
       scanPauseStarted = 0;
     }
 
     scanMode = !scanMode;
     scanBtn.textContent = scanMode ? '返回游戏' : '扫码模式';
-    showToast(scanMode ? '已隐藏游戏元素，可直接扫码；关卡计时暂停。' : '继续探索蚁穴。');
+    showToast(scanMode ? '已隐藏游戏元素，可直接扫码；限时关卡计时暂停。' : '继续探索蚁穴。');
     requestRender();
   });
 
