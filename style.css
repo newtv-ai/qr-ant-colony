@@ -330,3 +330,26 @@ footer { color: #796e60; font-size: 12px; margin-top: 20px; text-align: center; 
   .action-preview { flex-direction: column; }
   .action-preview button { width: 68px; min-width: 68px; height: 40px; font-size: 11px; }
 }
+
+
+.level-next {
+  width: 100%;
+  margin-top: 12px;
+  padding: 10px 12px;
+  border: 1px solid rgba(123,245,154,.34);
+  border-radius: 11px;
+  background: rgba(123,245,154,.12);
+  color: #b8ffca;
+  font-size: 12px;
+  font-weight: 900;
+}
+.level-next:hover { background: rgba(123,245,154,.18); }
+
+.roadmap-step.unlocked { opacity: 1; cursor: pointer; }
+.roadmap-step.unlocked:hover {
+  border-color: rgba(255,200,74,.28);
+  transform: translateY(-1px);
+}
+.roadmap-step {
+  transition: border-color .16s ease, background .16s ease, transform .16s ease, opacity .16s ease;
+}
