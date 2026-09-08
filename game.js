@@ -655,7 +655,7 @@
     // Real emoji-style food is much easier to recognize at QR scale than a
     // hand-drawn abstract shape. Higher-tier food is also slightly larger.
     const level = food.level || 1;
-    const iconSize = Math.max(22, step * (1.28 + level * .10));
+    const iconSize = Math.max(20, step * (1.16 + level * .09));
 
     ctx.save();
     ctx.translate(p.x, p.y);
