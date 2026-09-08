@@ -25,7 +25,7 @@
         <button id="generateBtn" class="primary">生成新蚁穴</button>
         <button id="scanBtn" class="secondary">扫码模式</button>
       </div>
-      <p class="hint">扫码模式会暂时隐藏所有游戏元素，显示标准黑白二维码。</p>
+      <p class="hint">游戏过程中会自动检测二维码可读性；「扫码模式」仍作为保险，显示纯黑白二维码。 <span id="scanHealth" class="scan-health checking">正在检测游戏画面...</span></p>
     </section>
 
     <section class="game-layout">
@@ -103,6 +103,7 @@
   </main>
 
   <script src="https://cdn.jsdelivr.net/npm/qrcode-generator@1.4.4/qrcode.min.js" onerror="this.onerror=null;this.src='https://cdnjs.cloudflare.com/ajax/libs/qrcode-generator/1.4.4/qrcode.min.js'"></script>
+  <script src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.js" onerror="this.onerror=null;this.src='https://cdnjs.cloudflare.com/ajax/libs/jsQR/1.4.0/jsQR.min.js'"></script>
   <script src="game.js"></script>
 </body>
 </html>
