@@ -934,7 +934,6 @@
     if (entrance.sealed) return;
     entrance.sealed = true;
     entrance.progress = entrance.required;
-    mudWorkers = mudWorkers.filter(w => w.entranceId !== entrance.id);
     showToast('✓ 一个入口封死了！', 1900);
   }
 
