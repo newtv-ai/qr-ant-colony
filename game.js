@@ -30,6 +30,8 @@
   const roadmap4El = document.getElementById('roadmap4');
   const biteBtn = document.getElementById('biteBtn');
   const acidBtn = document.getElementById('acidBtn');
+  const mobileBiteBtn = document.querySelector('[data-mobile-action="bite"]');
+  const mobileAcidBtn = document.querySelector('[data-mobile-action="acid"]');
   const scanHealthEl = document.getElementById('scanHealth');
 
   const POPULATION_TARGET = 10;
@@ -583,8 +585,16 @@
     nextLevelBtn.hidden = true;
     biteBtn.disabled = true;
     biteBtn.classList.remove('ready');
+    if (mobileBiteBtn) {
+      mobileBiteBtn.disabled = true;
+      mobileBiteBtn.classList.remove('ready');
+    }
     acidBtn.disabled = true;
     acidBtn.classList.remove('ready');
+    if (mobileAcidBtn) {
+      mobileAcidBtn.disabled = true;
+      mobileAcidBtn.classList.remove('ready');
+    }
     setRoadmapActive(1);
   }
 
@@ -608,8 +618,16 @@
     nextLevelBtn.hidden = true;
     biteBtn.disabled = true;
     biteBtn.classList.remove('ready');
+    if (mobileBiteBtn) {
+      mobileBiteBtn.disabled = true;
+      mobileBiteBtn.classList.remove('ready');
+    }
     acidBtn.disabled = true;
     acidBtn.classList.remove('ready');
+    if (mobileAcidBtn) {
+      mobileAcidBtn.disabled = true;
+      mobileAcidBtn.classList.remove('ready');
+    }
     setRoadmapActive(2);
   }
 
@@ -631,8 +649,16 @@
     nextLevelBtn.hidden = true;
     biteBtn.disabled = false;
     biteBtn.classList.add('ready');
+    if (mobileBiteBtn) {
+      mobileBiteBtn.disabled = false;
+      mobileBiteBtn.classList.add('ready');
+    }
     acidBtn.disabled = true;
     acidBtn.classList.remove('ready');
+    if (mobileAcidBtn) {
+      mobileAcidBtn.disabled = true;
+      mobileAcidBtn.classList.remove('ready');
+    }
     setRoadmapActive(3);
   }
 
@@ -2033,6 +2059,7 @@
   });
 
   biteBtn.addEventListener('click', biteAttack);
+  if (mobileBiteBtn) mobileBiteBtn.addEventListener('click', biteAttack);
 
   document.querySelectorAll('[data-dir]').forEach(btn => {
     let hold = null;
