@@ -364,7 +364,7 @@
         return;
       }
 
-      w.progress += w.speed * dt * 60;
+      w.progress += w.speed * dt;
       while (w.progress >= 1) {
         w.progress -= 1;
         w.index += w.direction;
