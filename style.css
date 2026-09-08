@@ -174,7 +174,7 @@ canvas {
 .legend-ant::before, .legend-ant::after { content:""; position:absolute; width:6px; height:6px; border-radius:50%; top:.5px; background:inherit; }
 .legend-ant::before { left:-3px; } .legend-ant::after { right:-3px; }
 .player-ant { background: var(--gold); } .worker-ant { background: var(--orange); }
-.legend-food { width: 11px; height: 11px; border-radius: 50%; background: #f07a25; box-shadow: 0 0 0 3px rgba(240,122,37,.12); }
+.legend-food { width: 14px; height: 11px; border-radius: 4px 5px 3px 5px; background: #e98932; border: 1px solid #7a3517; box-shadow: 0 0 0 3px rgba(240,122,37,.10); transform: rotate(-7deg); }
 .legend-nest { width: 13px; height: 13px; border-radius:50%; border:3px solid var(--green); }
 .legend-water { width: 13px; height: 13px; border-radius:50%; background: rgba(93,200,255,.75); }
 
