@@ -276,14 +276,21 @@
     nest = { ...pickNest() };
     player = { ...nest, facing: 'right' };
     const foodNodes = pickFoodNodes(5);
+    const foodTiers = [
+      { kind: 'donut', units: 2, level: 1, name: '甜甜圈' },
+      { kind: 'cupcake', units: 3, level: 2, name: '杯子蛋糕' },
+      { kind: 'cake', units: 5, level: 3, name: '草莓蛋糕' }
+    ];
     foods = foodNodes.map((node, i) => {
-      const big = i % 3 === 0;
+      const tier = foodTiers[i % foodTiers.length];
       return {
         ...node,
         id: `food-${Date.now()}-${i}`,
-        units: big ? 4 : 3,
-        maxUnits: big ? 4 : 3,
-        kind: big ? 'bread' : (i % 2 === 0 ? 'crumb' : 'sugar'),
+        units: tier.units,
+        maxUnits: tier.units,
+        kind: tier.kind,
+        level: tier.level,
+        foodName: tier.name,
         displayCell: chooseFoodDisplayCell(node),
         discovered: false,
         routeActivated: false
@@ -370,7 +377,7 @@
       discovered += 1;
       carriedDiscovery = food;
       missionTextEl.textContent = '已找到食物！现在回到绿色蚁穴，把气味信息带回去。';
-      showToast(`发现${food.maxUnits >= 4 ? '大块' : ''}食物！回巢报信。`);
+      showToast(`发现 Lv.${food.level || 1} ${food.foodName || '食物'}！回巢报信。`);
     }
 
     if (sameNode(player, nest) && carriedDiscovery) {
@@ -485,16 +492,26 @@
   function spawnMoreFood(count) {
     const nodes = pickFoodNodes(count);
     const base = Date.now();
-    nodes.forEach((node, i) => foods.push({
-      ...node,
-      id: `food-${base}-${i}`,
-      units: 3,
-      maxUnits: 3,
-      kind: i % 2 === 0 ? 'crumb' : 'sugar',
-      displayCell: chooseFoodDisplayCell(node),
-      discovered: false,
-      routeActivated: false
-    }));
+    const tiers = [
+      { kind: 'donut', units: 2, level: 1, name: '甜甜圈' },
+      { kind: 'cupcake', units: 3, level: 2, name: '杯子蛋糕' },
+      { kind: 'cake', units: 5, level: 3, name: '草莓蛋糕' }
+    ];
+    nodes.forEach((node, i) => {
+      const tier = tiers[i % tiers.length];
+      foods.push({
+        ...node,
+        id: `food-${base}-${i}`,
+        units: tier.units,
+        maxUnits: tier.units,
+        kind: tier.kind,
+        level: tier.level,
+        foodName: tier.name,
+        displayCell: chooseFoodDisplayCell(node),
+        discovered: false,
+        routeActivated: false
+      });
+    });
     showToast('新的食物气味出现在远处。');
   }
 
@@ -625,105 +642,48 @@
 
   function drawFood(food) {
     if (food.units <= 0) return;
+
     const { step } = boardMetrics();
     const p = foodScreenPosition(food);
-    const kind = food.kind || (food.maxUnits >= 4 ? 'bread' : 'crumb');
-    const s = Math.max(10, step * .78);
+    const icons = {
+      donut: '🍩',
+      cupcake: '🧁',
+      cake: '🍰'
+    };
+    const icon = icons[food.kind] || '🍩';
+
+    // Real emoji-style food is much easier to recognize at QR scale than a
+    // hand-drawn abstract shape. Higher-tier food is also slightly larger.
+    const level = food.level || 1;
+    const iconSize = Math.max(22, step * (1.28 + level * .10));
 
     ctx.save();
     ctx.translate(p.x, p.y);
-    ctx.lineJoin = 'round';
-    ctx.lineCap = 'round';
-    ctx.shadowColor = 'rgba(255, 157, 59, .48)';
-    ctx.shadowBlur = Math.max(3, step * .22);
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.font = `${iconSize}px "Apple Color Emoji","Segoe UI Emoji","Noto Color Emoji",sans-serif`;
 
-    if (kind === 'sugar') {
-      // A tiny sugar cube: bright enough to read as food, but outlined so it
-      // remains visible over the white parts of the QR code.
-      ctx.rotate(-Math.PI / 12);
-      ctx.fillStyle = '#fff5d8';
-      ctx.strokeStyle = '#b76522';
-      ctx.lineWidth = Math.max(1.2, step * .075);
-      ctx.beginPath();
-      ctx.roundRect(-s * .55, -s * .48, s * 1.1, s * .96, s * .13);
-      ctx.fill();
-      ctx.stroke();
+    // Small neutral halo separates the emoji from both black and white modules.
+    ctx.shadowColor = 'rgba(255, 176, 82, .55)';
+    ctx.shadowBlur = Math.max(5, step * .28);
+    ctx.fillText(icon, 0, 0);
+    ctx.shadowBlur = 0;
 
-      ctx.shadowBlur = 0;
-      ctx.strokeStyle = 'rgba(255,255,255,.9)';
-      ctx.lineWidth = Math.max(1, step * .04);
-      ctx.beginPath();
-      ctx.moveTo(-s * .35, -s * .25);
-      ctx.lineTo(s * .22, -s * .25);
-      ctx.stroke();
-    } else if (kind === 'bread') {
-      // Bread chunk: crust outside, soft center inside.
-      ctx.fillStyle = '#a94d1e';
-      ctx.strokeStyle = '#5f2c13';
-      ctx.lineWidth = Math.max(1.1, step * .065);
-      ctx.beginPath();
-      ctx.moveTo(-s * .72, s * .42);
-      ctx.lineTo(-s * .62, -s * .18);
-      ctx.quadraticCurveTo(-s * .55, -s * .72, 0, -s * .72);
-      ctx.quadraticCurveTo(s * .55, -s * .72, s * .62, -s * .18);
-      ctx.lineTo(s * .72, s * .42);
-      ctx.closePath();
-      ctx.fill();
-      ctx.stroke();
-
-      ctx.shadowBlur = 0;
-      ctx.fillStyle = '#f5c36d';
-      ctx.beginPath();
-      ctx.moveTo(-s * .48, s * .28);
-      ctx.lineTo(-s * .4, -s * .12);
-      ctx.quadraticCurveTo(-s * .34, -s * .48, 0, -s * .5);
-      ctx.quadraticCurveTo(s * .34, -s * .48, s * .4, -s * .12);
-      ctx.lineTo(s * .48, s * .28);
-      ctx.closePath();
-      ctx.fill();
-    } else {
-      // Irregular cookie / bread crumb.
-      ctx.fillStyle = '#e98932';
-      ctx.strokeStyle = '#7a3517';
-      ctx.lineWidth = Math.max(1.1, step * .065);
-      ctx.beginPath();
-      ctx.moveTo(-s * .58, -s * .16);
-      ctx.lineTo(-s * .25, -s * .58);
-      ctx.lineTo(s * .28, -s * .5);
-      ctx.lineTo(s * .6, -s * .05);
-      ctx.lineTo(s * .38, s * .48);
-      ctx.lineTo(-s * .18, s * .58);
-      ctx.lineTo(-s * .62, s * .22);
-      ctx.closePath();
-      ctx.fill();
-      ctx.stroke();
-
-      ctx.shadowBlur = 0;
-      ctx.fillStyle = '#6c2d16';
-      [[-.22,-.18],[.18,-.08],[-.02,.25]].forEach(([x,y]) => {
-        ctx.beginPath();
-        ctx.arc(x * s, y * s, Math.max(1, s * .085), 0, Math.PI * 2);
-        ctx.fill();
-      });
-    }
-
-    // Remaining portions are shown as a tiny badge instead of printing a
-    // number over the food illustration.
     if (food.discovered) {
-      ctx.shadowBlur = 0;
-      ctx.setTransform(1, 0, 0, 1, p.x, p.y);
-      const bx = s * .56;
-      const by = -s * .56;
-      const br = Math.max(5.5, step * .23);
-      ctx.fillStyle = '#2b170d';
-      ctx.strokeStyle = '#ffd28b';
-      ctx.lineWidth = Math.max(1, step * .045);
+      const bx = iconSize * .35;
+      const by = -iconSize * .34;
+      const br = Math.max(6, step * .24);
+
+      ctx.fillStyle = '#21130c';
+      ctx.strokeStyle = level === 3 ? '#ff8ca1' : (level === 2 ? '#ffd27a' : '#e9bd91');
+      ctx.lineWidth = Math.max(1.2, step * .055);
       ctx.beginPath();
       ctx.arc(bx, by, br, 0, Math.PI * 2);
       ctx.fill();
       ctx.stroke();
-      ctx.fillStyle = '#fff3d7';
-      ctx.font = `800 ${Math.max(7, step * .31)}px system-ui`;
+
+      ctx.fillStyle = '#fff8ed';
+      ctx.font = `800 ${Math.max(8, step * .32)}px system-ui`;
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
       ctx.fillText(String(food.units), bx, by + .3);
