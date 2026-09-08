@@ -1,0 +1,83 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
+  <meta name="theme-color" content="#17130f" />
+  <title>QR Ant Colony · 二维码蚁穴</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <main class="app-shell">
+    <header class="hero">
+      <div>
+        <p class="eyebrow">QR ANT COLONY · PROTOTYPE</p>
+        <h1>如果你穿越成一只蚂蚁，<br />这个二维码就是你的世界。</h1>
+        <p class="subtitle">找到食物 → 把气味带回蚁穴 → 工蚁沿信息素出发 → 在暴雨淹没巢穴前储备足够食物。</p>
+      </div>
+      <div class="status-badge" id="gameStateBadge">探索中</div>
+    </header>
+
+    <section class="control-panel" aria-label="二维码内容设置">
+      <label for="qrInput">二维码内容</label>
+      <div class="input-row">
+        <input id="qrInput" type="text" value="https://github.com/newtv-ai/qr-ant-colony" autocomplete="off" spellcheck="false" />
+        <button id="generateBtn" class="primary">生成新蚁穴</button>
+        <button id="scanBtn" class="secondary">扫码模式</button>
+      </div>
+      <p class="hint">扫码模式会暂时隐藏所有游戏元素，显示标准黑白二维码。</p>
+    </section>
+
+    <section class="game-layout">
+      <div class="board-wrap">
+        <canvas id="gameCanvas" width="900" height="900" aria-label="二维码蚁穴游戏画面"></canvas>
+        <div id="toast" class="toast" role="status" aria-live="polite"></div>
+      </div>
+
+      <aside class="side-panel">
+        <div class="stats-grid">
+          <div class="stat-card"><span>储备食物</span><strong id="foodScore">0 / 12</strong></div>
+          <div class="stat-card"><span>工蚁数量</span><strong id="workerCount">3</strong></div>
+          <div class="stat-card"><span>暴雨倒计时</span><strong id="rainTimer">70s</strong></div>
+          <div class="stat-card"><span>发现食物</span><strong id="discoveredCount">0</strong></div>
+        </div>
+
+        <div class="mission-card">
+          <h2>当前任务</h2>
+          <p id="missionText">探索蚁穴，找到一块食物。</p>
+        </div>
+
+        <div class="legend-card">
+          <h2>一眼看懂</h2>
+          <div class="legend"><span class="legend-ant player-ant"></span><span>你：黄色蚂蚁</span></div>
+          <div class="legend"><span class="legend-ant worker-ant"></span><span>工蚁：橙色蚂蚁</span></div>
+          <div class="legend"><span class="legend-food"></span><span>食物：橙色颗粒</span></div>
+          <div class="legend"><span class="legend-nest"></span><span>蚁穴：绿色圆环</span></div>
+          <div class="legend"><span class="legend-water"></span><span>积水：蓝色光点</span></div>
+        </div>
+
+        <div class="desktop-help">
+          <h2>操作</h2>
+          <p>电脑：WASD / 方向键<br />手机：使用下方方向键</p>
+        </div>
+      </aside>
+    </section>
+
+    <section class="mobile-controls" aria-label="移动控制">
+      <button data-dir="up" aria-label="向上">▲</button>
+      <div>
+        <button data-dir="left" aria-label="向左">◀</button>
+        <button data-dir="down" aria-label="向下">▼</button>
+        <button data-dir="right" aria-label="向右">▶</button>
+      </div>
+    </section>
+
+    <footer>
+      <p>二维码矩阵本身不被修改；游戏元素只是覆盖层。需要扫码时切换「扫码模式」。</p>
+    </footer>
+  </main>
+
+  <script src="https://cdn.jsdelivr.net/npm/qrcode-generator@1.4.4/qrcode.min.js"></script>
+  <script src="game.js"></script>
+</body>
+</html>
