@@ -185,22 +185,75 @@
 
   function pickFoodNodes(count) {
     const dist = distanceMap(nest);
-    const ordered = component
-      .map(n => ({ n, d: dist.get(nodeKey(n.r, n.c)) || 0 }))
-      .filter(x => x.d > Math.max(8, matrixSize * .28))
-      .sort((a, b) => b.d - a.d);
+    const minDistance = Math.max(6, Math.floor(matrixSize * .18));
+    const maxDistance = Math.max(minDistance + 4, Math.floor(matrixSize * 1.25));
+
+    const isFinderZone = node => {
+      const pad = 9;
+      const inTop = node.r <= pad;
+      const inLeft = node.c <= pad;
+      const inRight = node.c >= matrixSize - pad;
+      const inBottom = node.r >= matrixSize - pad;
+      return (inTop && inLeft) || (inTop && inRight) || (inBottom && inLeft);
+    };
+
+    // Every candidate comes from the largest connected component, so it is
+    // reachable from the nest. We additionally require a nearby white module
+    // for the visible food icon, and avoid the three QR finder patterns.
+    const candidates = component
+      .filter(n => {
+        const d = dist.get(nodeKey(n.r, n.c));
+        return (
+          Number.isFinite(d) &&
+          d >= minDistance &&
+          d <= maxDistance &&
+          !sameNode(n, nest) &&
+          !isFinderZone(n) &&
+          !!chooseFoodDisplayCell(n)
+        );
+      });
+
+    // Fisher-Yates shuffle: the same QR gets different food positions each run.
+    for (let i = candidates.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [candidates[i], candidates[j]] = [candidates[j], candidates[i]];
+    }
 
     const chosen = [];
-    for (const item of ordered) {
-      if (chosen.every(x => Math.hypot(x.r - item.n.r, x.c - item.n.c) > matrixSize * .18)) {
-        chosen.push({ ...item.n });
+    const usedCells = new Set();
+    const preferredSpacing = Math.max(3, matrixSize * .11);
+
+    for (const n of candidates) {
+      const cell = chooseFoodDisplayCell(n);
+      if (!cell) continue;
+      const cellKey = nodeKey(cell.r, cell.c);
+      if (usedCells.has(cellKey)) continue;
+
+      const farEnough = chosen.every(
+        other => Math.hypot(other.r - n.r, other.c - n.c) >= preferredSpacing
+      );
+      if (!farEnough) continue;
+
+      chosen.push({ ...n });
+      usedCells.add(cellKey);
+      if (chosen.length >= count) break;
+    }
+
+    // Fallback only relaxes spacing; reachability and a valid white display
+    // cell remain mandatory.
+    if (chosen.length < count) {
+      for (const n of candidates) {
         if (chosen.length >= count) break;
+        if (chosen.some(other => sameNode(other, n))) continue;
+        const cell = chooseFoodDisplayCell(n);
+        if (!cell) continue;
+        const cellKey = nodeKey(cell.r, cell.c);
+        if (usedCells.has(cellKey)) continue;
+        chosen.push({ ...n });
+        usedCells.add(cellKey);
       }
     }
-    while (chosen.length < count && component.length) {
-      const n = component[Math.floor(Math.random() * component.length)];
-      if (!sameNode(n, nest)) chosen.push({ ...n });
-    }
+
     return chosen;
   }
 
@@ -283,8 +336,14 @@
     const foodTiers = [
       { kind: 'donut', units: 2, level: 1, name: '甜甜圈' },
       { kind: 'cupcake', units: 3, level: 2, name: '杯子蛋糕' },
-      { kind: 'cake', units: 5, level: 3, name: '草莓蛋糕' }
+      { kind: 'cake', units: 5, level: 3, name: '草莓蛋糕' },
+      { kind: 'donut', units: 2, level: 1, name: '甜甜圈' },
+      { kind: 'cupcake', units: 3, level: 2, name: '杯子蛋糕' }
     ];
+    for (let i = foodTiers.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [foodTiers[i], foodTiers[j]] = [foodTiers[j], foodTiers[i]];
+    }
     foods = foodNodes.map((node, i) => {
       const tier = foodTiers[i % foodTiers.length];
       return {
@@ -498,15 +557,6 @@
 
     workers = workers.filter((_, i) => !dead.has(i));
 
-    const remainingUndiscovered = foods.some(f => !f.discovered && f.units > 0);
-    if (
-      !carriedDiscovery &&
-      !remainingUndiscovered &&
-      foods.every(f => f.units <= 0) &&
-      population < POPULATION_TARGET
-    ) {
-      spawnMoreFood(3);
-    }
   }
 
   function applyFoodBuff(food) {
@@ -553,32 +603,6 @@
     gameStateBadge.style.color = '#7bf59a';
     missionTextEl.textContent = '人口达到10只！你已经掌握探索、报信和运输。下一关：搬泥堵住入口，抵御暴雨。';
     showToast('第1关完成！殖民地诞生了 🐜', 4200);
-  }
-
-  function spawnMoreFood(count) {
-    const nodes = pickFoodNodes(count);
-    const base = Date.now();
-    const tiers = [
-      { kind: 'donut', units: 2, level: 1, name: '甜甜圈' },
-      { kind: 'cupcake', units: 3, level: 2, name: '杯子蛋糕' },
-      { kind: 'cake', units: 5, level: 3, name: '草莓蛋糕' }
-    ];
-    nodes.forEach((node, i) => {
-      const tier = tiers[i % tiers.length];
-      foods.push({
-        ...node,
-        id: `food-${base}-${i}`,
-        units: tier.units,
-        maxUnits: tier.units,
-        kind: tier.kind,
-        level: tier.level,
-        foodName: tier.name,
-        displayCell: chooseFoodDisplayCell(node),
-        discovered: false,
-        routeActivated: false
-      });
-    });
-    showToast('新的食物气味出现在远处。');
   }
 
 
