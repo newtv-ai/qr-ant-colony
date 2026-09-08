@@ -30,6 +30,7 @@
   const roadmap4El = document.getElementById('roadmap4');
   const biteBtn = document.getElementById('biteBtn');
   const acidBtn = document.getElementById('acidBtn');
+  const scanHealthEl = document.getElementById('scanHealth');
 
   const POPULATION_TARGET = 10;
   const START_POPULATION = 3;
@@ -96,12 +97,189 @@
   let lastBiteTime = 0;
   let biteEffectUntil = 0;
 
+  let qrPayload = '';
+  let qrSafetyMode = false;
+  let qrVerifyFailures = 0;
+  let qrVerifySuccesses = 0;
+  let lastQrVerifyAt = 0;
+  let qrVerifyBusy = false;
+  const qrVerifyCanvas = document.createElement('canvas');
+  const qrVerifyCtx = qrVerifyCanvas.getContext('2d', { willReadFrequently: true });
+  qrVerifyCanvas.width = 420;
+  qrVerifyCanvas.height = 420;
+
   function nodeKey(r, c) { return `${r},${c}`; }
   function parseKey(key) { const [r, c] = key.split(',').map(Number); return { r, c }; }
   function sameNode(a, b) { return a && b && a.r === b.r && a.c === b.c; }
 
   function isDark(r, c) {
     return r >= 0 && c >= 0 && r < matrixSize && c < matrixSize && qr.isDark(r, c);
+  }
+
+  function qrVersion() {
+    return Math.max(1, Math.round((matrixSize - 17) / 4));
+  }
+
+  function alignmentPatternPositions() {
+    const version = qrVersion();
+    if (version === 1) return [];
+
+    const numAlign = Math.floor(version / 7) + 2;
+    const step = version === 32
+      ? 26
+      : Math.ceil((version * 4 + numAlign * 2 + 1) / (numAlign * 2 - 2)) * 2;
+
+    const result = new Array(numAlign);
+    result[0] = 6;
+    for (let i = numAlign - 1, pos = matrixSize - 7; i >= 1; i--, pos -= step) {
+      result[i] = pos;
+    }
+    return result;
+  }
+
+  function isProtectedModule(r, c) {
+    if (r < 0 || c < 0 || r >= matrixSize || c >= matrixSize) return false;
+
+    // Finder patterns + separators + format information around them.
+    if (r <= 8 && c <= 8) return true;
+    if (r <= 8 && c >= matrixSize - 9) return true;
+    if (r >= matrixSize - 9 && c <= 8) return true;
+
+    // Timing patterns and their immediate format intersections.
+    if (r === 6 || c === 6) return true;
+    if (r === 8 && (c <= 8 || c >= matrixSize - 8)) return true;
+    if (c === 8 && (r <= 8 || r >= matrixSize - 8)) return true;
+
+    // Version information for QR version 7+.
+    if (qrVersion() >= 7) {
+      if (r <= 5 && c >= matrixSize - 11) return true;
+      if (c <= 5 && r >= matrixSize - 11) return true;
+    }
+
+    // Alignment patterns (5x5), excluding areas already occupied by finders.
+    const centers = alignmentPatternPositions();
+    for (const ar of centers) {
+      for (const ac of centers) {
+        const overlapsFinder =
+          (ar === 6 && ac === 6) ||
+          (ar === 6 && ac === matrixSize - 7) ||
+          (ar === matrixSize - 7 && ac === 6);
+        if (overlapsFinder) continue;
+        if (Math.abs(r - ar) <= 2 && Math.abs(c - ac) <= 2) return true;
+      }
+    }
+
+    // Fixed dark module.
+    if (r === 4 * qrVersion() + 9 && c === 8) return true;
+    return false;
+  }
+
+  function nodeTouchesProtected(node) {
+    return [
+      [node.r - 1, node.c - 1],
+      [node.r - 1, node.c],
+      [node.r, node.c - 1],
+      [node.r, node.c]
+    ].some(([r, c]) => isProtectedModule(r, c));
+  }
+
+  function drawQRProtection() {
+    if (!qr || scanMode) return;
+    const { step, offset } = boardMetrics();
+
+    ctx.save();
+
+    // Critical QR function modules are always restored exactly after all game
+    // graphics, so sprites can never cover finder/timing/alignment structures.
+    for (let r = 0; r < matrixSize; r++) {
+      for (let c = 0; c < matrixSize; c++) {
+        if (!isProtectedModule(r, c)) continue;
+        const x1 = Math.round(offset + c * step);
+        const y1 = Math.round(offset + r * step);
+        const x2 = Math.round(offset + (c + 1) * step);
+        const y2 = Math.round(offset + (r + 1) * step);
+        ctx.fillStyle = isDark(r, c) ? '#000000' : '#ffffff';
+        ctx.fillRect(x1, y1, x2 - x1, y2 - y1);
+      }
+    }
+
+    // Keep a clean black sampling core in every non-critical dark module.
+    // This preserves the QR's center samples while leaving most of each module
+    // available for the ant-game overlay.
+    const coreRatio = qrSafetyMode ? .58 : .42;
+    const core = step * coreRatio;
+    ctx.fillStyle = '#000000';
+    for (let r = 0; r < matrixSize; r++) {
+      for (let c = 0; c < matrixSize; c++) {
+        if (!isDark(r, c) || isProtectedModule(r, c)) continue;
+        const cx = offset + (c + .5) * step;
+        const cy = offset + (r + .5) * step;
+        ctx.fillRect(cx - core / 2, cy - core / 2, core, core);
+      }
+    }
+
+    ctx.restore();
+  }
+
+  function setScanHealth(state, text) {
+    if (!scanHealthEl) return;
+    scanHealthEl.className = `scan-health ${state}`;
+    scanHealthEl.textContent = text;
+  }
+
+  function verifyGameplayQR() {
+    if (!qr || scanMode || qrVerifyBusy || typeof jsQR !== 'function') return;
+    qrVerifyBusy = true;
+
+    try {
+      qrVerifyCtx.fillStyle = '#fff';
+      qrVerifyCtx.fillRect(0, 0, qrVerifyCanvas.width, qrVerifyCanvas.height);
+      qrVerifyCtx.drawImage(canvas, 0, 0, qrVerifyCanvas.width, qrVerifyCanvas.height);
+      const image = qrVerifyCtx.getImageData(0, 0, qrVerifyCanvas.width, qrVerifyCanvas.height);
+      const decoded = jsQR(image.data, image.width, image.height, {
+        inversionAttempts: 'dontInvert'
+      });
+
+      const ok = !!decoded && decoded.data === qrPayload;
+      if (ok) {
+        qrVerifyFailures = 0;
+        qrVerifySuccesses += 1;
+        setScanHealth(
+          'good',
+          qrSafetyMode ? '✓ 游戏画面可扫码 · 增强保护' : '✓ 游戏画面可扫码'
+        );
+      } else {
+        qrVerifySuccesses = 0;
+        qrVerifyFailures += 1;
+
+        if (!qrSafetyMode) {
+          qrSafetyMode = true;
+          setScanHealth('checking', '正在增强二维码保护...');
+          requestRender();
+        } else if (qrVerifyFailures >= 2) {
+          setScanHealth('warn', '⚠ 当前画面建议用扫码模式');
+        }
+      }
+    } catch (err) {
+      setScanHealth('warn', '⚠ 扫码检测暂不可用');
+    } finally {
+      qrVerifyBusy = false;
+    }
+  }
+
+  function maybeVerifyGameplayQR(now) {
+    if (scanMode || !qr || status === 'lost') return;
+    if (typeof jsQR !== 'function') {
+      if (now - lastQrVerifyAt > 3000) {
+        lastQrVerifyAt = now;
+        setScanHealth('warn', '⚠ 扫码检测器未加载');
+      }
+      return;
+    }
+    const interval = qrSafetyMode ? 1100 : 1600;
+    if (now - lastQrVerifyAt < interval) return;
+    lastQrVerifyAt = now;
+    verifyGameplayQR();
   }
 
   // Nodes sit on QR module corners. An edge is blocked only when it runs between
@@ -222,7 +400,10 @@
   function pickNest() {
     const center = matrixSize / 2;
     const candidates = component.filter(
-      n => n.r > 4 && n.c > 4 && n.r < matrixSize - 4 && n.c < matrixSize - 4
+      n =>
+        n.r > 4 && n.c > 4 &&
+        n.r < matrixSize - 4 && n.c < matrixSize - 4 &&
+        !nodeTouchesProtected(n)
     );
     const pool = candidates.length ? candidates : component;
     return pool.reduce((best, n) => {
@@ -317,7 +498,8 @@
     ].filter(cell =>
       cell.r >= 0 && cell.c >= 0 &&
       cell.r < matrixSize && cell.c < matrixSize &&
-      !isDark(cell.r, cell.c)
+      !isDark(cell.r, cell.c) &&
+      !isProtectedModule(cell.r, cell.c)
     );
 
     if (!cells.length) return null;
@@ -477,7 +659,7 @@
     const candidates = shuffled(component.filter(n => {
       const nearEdge = n.r <= 2 || n.c <= 2 || n.r >= matrixSize - 2 || n.c >= matrixSize - 2;
       const d = dist.get(nodeKey(n.r, n.c));
-      return nearEdge && Number.isFinite(d) && d >= Math.max(10, matrixSize * .22) && !isFinderZoneNode(n);
+      return nearEdge && Number.isFinite(d) && d >= Math.max(10, matrixSize * .22) && !isFinderZoneNode(n) && !nodeTouchesProtected(n);
     }));
 
     const chosen = [];
@@ -520,7 +702,7 @@
         Number.isFinite(d) &&
         d >= Math.max(5, matrixSize * .12) &&
         d <= Math.max(18, matrixSize * .72) &&
-        !isFinderZoneNode(n) &&
+        !isFinderZoneNode(n) && !nodeTouchesProtected(n) &&
         !!chooseFoodDisplayCell(n) &&
         entrances.every(e => Math.hypot(e.r - n.r, e.c - n.c) >= matrixSize * .14)
       );
@@ -552,8 +734,15 @@
       return;
     }
 
+    qrPayload = content || 'QR Ant Colony';
+    qrSafetyMode = false;
+    qrVerifyFailures = 0;
+    qrVerifySuccesses = 0;
+    lastQrVerifyAt = 0;
+    setScanHealth('checking', '正在检测游戏画面...');
+
     qr = qrcode(0, 'H');
-    qr.addData(content || 'QR Ant Colony');
+    qr.addData(qrPayload);
     qr.make();
     matrixSize = qr.getModuleCount();
     graph = buildGraph();
@@ -1253,7 +1442,7 @@
     const candidates = shuffled(component.filter(n => {
       const nearEdge = n.r <= 2 || n.c <= 2 || n.r >= matrixSize - 2 || n.c >= matrixSize - 2;
       const d = dist.get(nodeKey(n.r, n.c));
-      return nearEdge && Number.isFinite(d) && d >= Math.max(10, matrixSize * .2) && !isFinderZoneNode(n);
+      return nearEdge && Number.isFinite(d) && d >= Math.max(10, matrixSize * .2) && !isFinderZoneNode(n) && !nodeTouchesProtected(n);
     }));
 
     const chosen = [];
@@ -1759,22 +1948,20 @@
       drawNest();
       drawMudWorkers();
       drawPlayer();
-      return;
-    }
-
-    if (currentLevel === 3) {
+    } else if (currentLevel === 3) {
       drawNest();
       drawEnemies();
       drawPlayer();
       drawBiteEffect();
-      return;
+    } else {
+      drawPheromones();
+      foods.forEach(drawFood);
+      drawNest();
+      drawWorkers();
+      drawPlayer();
     }
 
-    drawPheromones();
-    foods.forEach(drawFood);
-    drawNest();
-    drawWorkers();
-    drawPlayer();
+    drawQRProtection();
   }
 
   function requestRender() {
@@ -1797,6 +1984,7 @@
     }
 
     requestRender();
+    maybeVerifyGameplayQR(now);
     requestAnimationFrame(loop);
   }
 
@@ -1903,6 +2091,11 @@
     }
 
     scanMode = !scanMode;
+    if (scanMode) setScanHealth('good', '✓ 纯黑白扫码模式');
+    else {
+      lastQrVerifyAt = 0;
+      setScanHealth('checking', '正在重新检测游戏画面...');
+    }
     scanBtn.textContent = scanMode ? '返回游戏' : '扫码模式';
     showToast(scanMode ? '已隐藏游戏元素，可直接扫码；限时关卡计时暂停。' : '继续探索蚁穴。');
     requestRender();
