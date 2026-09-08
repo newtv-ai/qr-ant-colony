@@ -591,7 +591,7 @@
 
   function drawAntAt(x, y, angle, color, scale = 1, carrying = false) {
     const { step } = boardMetrics();
-    const s = Math.max(2.2, step * .19) * scale;
+    const s = Math.max(2.8, step * .245) * scale;
     ctx.save();
     ctx.translate(x, y);
     ctx.rotate(angle);
@@ -638,7 +638,7 @@
 
   function drawPlayer() {
     const p = nodeXY(player);
-    drawAntAt(p.x, p.y, facingAngle(player.facing), '#ffc83d', 1.12, false);
+    drawAntAt(p.x, p.y, facingAngle(player.facing), '#ffc83d', 1.18, false);
 
     if (carriedDiscovery) {
       const { step } = boardMetrics();
@@ -671,7 +671,7 @@
   function drawWorkers() {
     workers.forEach(w => {
       const p = workerPosition(w);
-      drawAntAt(p.x, p.y, p.angle, '#ff9d35', .72, w.carrying);
+      drawAntAt(p.x, p.y, p.angle, '#ff9d35', .82, w.carrying);
     });
   }
 
