@@ -1296,6 +1296,7 @@
     lastBiteTime = 0;
     biteEffectUntil = 0;
     level3StartTime = performance.now();
+    lastEnemySpawn = level3StartTime;
     scanPauseStarted = 0;
 
     if (!enemySpawnNodes.length) {
