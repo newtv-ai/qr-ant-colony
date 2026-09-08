@@ -362,3 +362,27 @@ footer { color: #796e60; font-size: 12px; margin-top: 20px; text-align: center; 
   border: 1px solid rgba(255, 111, 74, .42);
 }
 .action-preview button.ready:active { transform: translateY(1px) scale(.98); }
+
+
+.scan-health {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  margin-left: 6px;
+  padding: 3px 7px;
+  border-radius: 999px;
+  font-weight: 800;
+  white-space: nowrap;
+}
+.scan-health.checking {
+  color: #d3c3aa;
+  background: rgba(211,195,170,.08);
+}
+.scan-health.good {
+  color: #9cf7b5;
+  background: rgba(123,245,154,.10);
+}
+.scan-health.warn {
+  color: #ffd48f;
+  background: rgba(255,190,95,.11);
+}
