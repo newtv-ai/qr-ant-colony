@@ -200,6 +200,60 @@
     return chosen;
   }
 
+  // Food is logically attached to a reachable graph node, but visually placed
+  // in the centre of a nearby WHITE QR module. This keeps it readable instead
+  // of letting a tiny icon sit on top of a black QR block.
+  function chooseFoodDisplayCell(node) {
+    const cells = [
+      { r: node.r - 1, c: node.c - 1 },
+      { r: node.r - 1, c: node.c },
+      { r: node.r, c: node.c - 1 },
+      { r: node.r, c: node.c }
+    ].filter(cell =>
+      cell.r >= 0 && cell.c >= 0 &&
+      cell.r < matrixSize && cell.c < matrixSize &&
+      !isDark(cell.r, cell.c)
+    );
+
+    if (!cells.length) return null;
+
+    // Prefer a white cell that sits among more white neighbours, so the food
+    // looks like it is lying in an actual passage rather than on a thin seam.
+    cells.sort((a, b) => {
+      const score = cell => {
+        let s = 0;
+        [[-1,0],[1,0],[0,-1],[0,1]].forEach(([dr, dc]) => {
+          const rr = cell.r + dr, cc = cell.c + dc;
+          if (rr >= 0 && cc >= 0 && rr < matrixSize && cc < matrixSize && !isDark(rr, cc)) s += 1;
+        });
+        return s;
+      };
+      return score(b) - score(a);
+    });
+    return cells[0];
+  }
+
+  function foodScreenPosition(food) {
+    if (!food.displayCell) return nodeXY(food);
+    const { step, offset } = boardMetrics();
+    return {
+      x: offset + (food.displayCell.c + .5) * step,
+      y: offset + (food.displayCell.r + .5) * step
+    };
+  }
+
+  function playerTouchesFood(food) {
+    if (!food.displayCell) return sameNode(food, player);
+    const r = food.displayCell.r;
+    const c = food.displayCell.c;
+    return (
+      (player.r === r && player.c === c) ||
+      (player.r === r && player.c === c + 1) ||
+      (player.r === r + 1 && player.c === c) ||
+      (player.r === r + 1 && player.c === c + 1)
+    );
+  }
+
   function resetGame(content) {
     if (typeof qrcode !== 'function') {
       showToast('二维码库加载失败，请检查网络后刷新。', 3200);
@@ -230,6 +284,7 @@
         units: big ? 4 : 3,
         maxUnits: big ? 4 : 3,
         kind: big ? 'bread' : (i % 2 === 0 ? 'crumb' : 'sugar'),
+        displayCell: chooseFoodDisplayCell(node),
         discovered: false,
         routeActivated: false
       };
@@ -309,7 +364,7 @@
       return;
     }
 
-    const food = foods.find(f => f.units > 0 && sameNode(f, player));
+    const food = foods.find(f => f.units > 0 && playerTouchesFood(f));
     if (food && !food.discovered) {
       food.discovered = true;
       discovered += 1;
@@ -436,6 +491,7 @@
       units: 3,
       maxUnits: 3,
       kind: i % 2 === 0 ? 'crumb' : 'sugar',
+      displayCell: chooseFoodDisplayCell(node),
       discovered: false,
       routeActivated: false
     }));
@@ -570,9 +626,9 @@
   function drawFood(food) {
     if (food.units <= 0) return;
     const { step } = boardMetrics();
-    const p = nodeXY(food);
+    const p = foodScreenPosition(food);
     const kind = food.kind || (food.maxUnits >= 4 ? 'bread' : 'crumb');
-    const s = Math.max(6.5, step * .42);
+    const s = Math.max(10, step * .78);
 
     ctx.save();
     ctx.translate(p.x, p.y);
@@ -658,7 +714,7 @@
       ctx.setTransform(1, 0, 0, 1, p.x, p.y);
       const bx = s * .56;
       const by = -s * .56;
-      const br = Math.max(4.5, step * .19);
+      const br = Math.max(5.5, step * .23);
       ctx.fillStyle = '#2b170d';
       ctx.strokeStyle = '#ffd28b';
       ctx.lineWidth = Math.max(1, step * .045);
