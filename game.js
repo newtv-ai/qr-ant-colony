@@ -1720,6 +1720,11 @@
     gameStateBadge.textContent = '第1关完成';
     gameStateBadge.style.color = '#7bf59a';
     missionTextEl.textContent = '人口达到10只！先选择一次蚁群进化，再进入暴雨关。';
+    const activeRoutes = pheromoneRoutes.filter(r => Number.isFinite(r.efficiency));
+    const avgRoute = activeRoutes.length
+      ? activeRoutes.reduce((sum,r) => sum + r.efficiency, 0) / activeRoutes.length
+      : 1;
+    awardLevelScore(1, 1000 + avgRoute * 520);
     level2Unlocked = true;
     setRoadmapActive(1);
     nextLevelBtn.hidden = true;
@@ -2134,7 +2139,12 @@
     gameStateBadge.style.color = '#7bf59a';
     populationBarEl.style.width = '100%';
     missionTextEl.textContent = '两个入口都封住了。选择第二次蚁群进化，决定第三关怎么防守。';
-    buffTextEl.textContent = '✓ 防洪成功：施工与限时玩法已掌握';
+    const left = Math.max(
+      0,
+      Math.ceil(level2DurationSeconds() - (performance.now() - level2StartTime) / 1000)
+    );
+    awardLevelScore(2, 1050 + left * 11);
+    buffTextEl.textContent = `✓ 防洪成功 · 当前总分 ${runScore}`;
     level3Unlocked = true;
     setRoadmapActive(2);
     nextLevelBtn.hidden = true;
@@ -3614,18 +3624,24 @@
     if (status !== 'playing') return;
     status = 'won';
     enemies = [];
+    awardLevelScore(
+      3,
+      1100 + nestHp * 110 + enemiesDefeated * 28
+    );
+    level4Unlocked = true;
     gameStateBadge.textContent = '第3关完成';
     gameStateBadge.style.color = '#7bf59a';
-    missionTextEl.textContent = '敌蚁退去了。你已经学会近战咬击；下一关将解锁 F 蚁酸，用远程减速来主动狩猎。';
-    buffTextEl.textContent = `✓ 防守成功：共击退 ${enemiesDefeated} 只敌蚁`;
-    populationBarEl.style.width = `${Math.max(0, (nestHp / level3MaxNestHp()) * 100)}%`;
-    roadmap3El.classList.add('active');
-    roadmap4El.classList.remove('locked');
-    roadmap4El.classList.add('unlocked');
+    missionTextEl.textContent =
+      '敌蚁退去了。下一关解锁F蚁酸：主动追猎会逃跑的甲虫。';
+    buffTextEl.textContent =
+      `✓ 击退 ${enemiesDefeated}只敌蚁 · 当前总分 ${runScore}`;
+    populationBarEl.style.width =
+      `${Math.max(0,(nestHp/level3MaxNestHp())*100)}%`;
+    setRoadmapActive(3);
     nextLevelBtn.hidden = false;
-    nextLevelBtn.disabled = true;
-    nextLevelBtn.textContent = '第4关：狩猎（下一步开发）';
-    showToast('第3关完成！守住蚁穴了 🦷✓', 4200);
+    nextLevelBtn.disabled = false;
+    nextLevelBtn.textContent = '进入第4关：狩猎 →';
+    showToast('第3关完成！F 蚁酸即将解锁 💧', 3200);
   }
 
   function failLevelThree() {
@@ -4072,6 +4088,19 @@
   acidBtn.addEventListener('click', acidAttack);
   if (mobileAcidBtn) mobileAcidBtn.addEventListener('click', acidAttack);
 
+  shareBtn.addEventListener('click', () => shareChallenge(false));
+  shareRunBtn.addEventListener('click', () => shareChallenge(true));
+
+  replayChallengeBtn.addEventListener('click', () => {
+    resultOverlayEl.hidden = true;
+    resetGame(qrPayload, runSeed, true);
+  });
+
+  newWorldBtn.addEventListener('click', () => {
+    resultOverlayEl.hidden = true;
+    resetGame(qrInput.value.trim() || qrPayload || 'QR Ant Colony', freshSeed(), true);
+  });
+
   document.querySelectorAll('[data-dir]').forEach(btn => {
     let hold = null;
     const dir = btn.dataset.dir;
@@ -4119,12 +4148,21 @@
 
   scanBtn.addEventListener('click', () => {
     const now = performance.now();
-    if (!scanMode && (currentLevel === 2 || currentLevel === 3) && status === 'playing') {
+    if (!scanMode && currentLevel >= 2 && currentLevel <= 6 && status === 'playing') {
       scanPauseStarted = now;
     } else if (scanMode && status === 'playing' && scanPauseStarted) {
       const pausedFor = now - scanPauseStarted;
       if (currentLevel === 2) level2StartTime += pausedFor;
       if (currentLevel === 3) level3StartTime += pausedFor;
+      if (currentLevel === 4) level4StartTime += pausedFor;
+      if (currentLevel === 5) {
+        level5StartTime += pausedFor;
+        rivalStartAt += pausedFor;
+      }
+      if (currentLevel === 6) {
+        level6StartTime += pausedFor;
+        if (migrationFloodAt) migrationFloodAt += pausedFor;
+      }
       scanPauseStarted = 0;
     }
 
