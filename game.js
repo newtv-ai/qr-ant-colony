@@ -43,7 +43,7 @@
   const LEVEL2_SECONDS = 90;
   const LEVEL2_ENTRANCE_COUNT = 2;
   const MUD_REQUIRED_PER_ENTRANCE = 3;
-  const LEVEL2_WORKER_LIMIT = 4;
+  const LEVEL2_WORKER_LIMIT = 10;
   const LEVEL3_SECONDS = 45;
   const LEVEL3_NEST_HP = 5;
   const BITE_COOLDOWN = 260;
@@ -77,10 +77,10 @@
   let level2Unlocked = false;
   let mudSources = [];
   let entrances = [];
-  let carryingMud = false;
-  let carriedMudSource = null;
-  let mudTrail = [];
+  let reportedMudSource = null;
+  let mudReportTrail = [];
   let mudWorkers = [];
+  let mudDiscovered = 0;
   let level2StartTime = 0;
   let level2RainStarted = false;
   let flooded = new Set();
@@ -117,6 +117,17 @@
   function isDark(r, c) {
     return r >= 0 && c >= 0 && r < matrixSize && c < matrixSize && qr.isDark(r, c);
   }
+
+  function isFinderForbiddenNode(node) {
+    if (!node) return false;
+    const pad = 9;
+    const top = node.r <= pad;
+    const left = node.c <= pad;
+    const right = node.c >= matrixSize - pad;
+    const bottom = node.r >= matrixSize - pad;
+    return (top && left) || (top && right) || (bottom && left);
+  }
+
 
   function qrVersion() {
     return Math.max(1, Math.round((matrixSize - 17) / 4));
@@ -295,6 +306,11 @@
       for (let c = 0; c < size; c++) {
         const list = [];
 
+        if (isFinderForbiddenNode({ r, c })) {
+          neighbors.set(nodeKey(r, c), []);
+          continue;
+        }
+
         if (c + 1 < size) {
           const aboveDark = isDark(r - 1, c);
           const belowDark = isDark(r, c);
@@ -321,7 +337,11 @@
         } else {
           neighbors.set(
             nodeKey(r, c),
-            list.filter(n => n.r > 0 && n.c > 0 && n.r < size - 1 && n.c < size - 1)
+            list.filter(n =>
+              n.r > 0 && n.c > 0 &&
+              n.r < size - 1 && n.c < size - 1 &&
+              !isFinderForbiddenNode(n)
+            )
           );
         }
       }
@@ -601,18 +621,18 @@
   function setLevelTwoUI() {
     chapterNumberEl.textContent = '第 2 关';
     chapterTitleEl.textContent = '暴雨来了';
-    chapterDescEl.textContent = '90秒内找到泥土，把第一块泥送到每个入口。工蚁会沿你走过的施工路线继续搬运。';
+    chapterDescEl.textContent = '沿用第一关的报信机制：发现泥土后回巢报告，10只工蚁会赶去搬泥并自动封堵入口。';
     statLabel1El.textContent = '封堵入口';
-    statLabel2El.textContent = '携带泥土';
-    statLabel3El.textContent = '施工工蚁';
+    statLabel2El.textContent = '发现泥堆';
+    statLabel3El.textContent = '工蚁数量';
     statLabel4El.textContent = '暴雨倒计时';
     legendCardEl.innerHTML = `
-      <h2>一眼看懂</h2>
-      <div class="legend"><span class="legend-ant player-ant"></span><span>你：黄色蚂蚁</span></div>
-      <div class="legend"><span class="legend-ant worker-ant"></span><span>施工工蚁：橙色蚂蚁</span></div>
-      <div class="legend"><span style="font-size:16px">🟤</span><span>泥土：碰到后自动扛起</span></div>
+      <h2>图例与规则</h2>
+      <div class="legend"><span class="legend-ant player-ant"></span><span>你：负责探索和报信</span></div>
+      <div class="legend"><span class="legend-ant worker-ant"></span><span>10只工蚁：负责搬泥</span></div>
+      <div class="legend"><span style="font-size:17px">🟤</span><span>泥堆：碰到即发现，随后回巢报信</span></div>
       <div class="legend"><span style="color:#5dc8ff;font-size:18px">◎</span><span>入口：每个需要3块泥</span></div>
-      <div class="legend"><span class="legend-water"></span><span>积水：暴雨后沿通道涌入</span></div>
+      <div class="legend"><span class="legend-water"></span><span>积水：倒计时结束后涌入</span></div>
       <div class="legend"><span class="legend-nest"></span><span>蚁穴：不能被水淹到</span></div>
     `;
     nextLevelBtn.hidden = true;
@@ -745,7 +765,12 @@
         chosen.push({
           ...n,
           id: `mud-${chosen.length}-${Date.now()}`,
-          displayCell: cell
+          displayCell: cell,
+          units: 2,
+          maxUnits: 2,
+          discovered: false,
+          activated: false,
+          route: null
         });
         usedCells.add(ck);
         if (chosen.length >= count) break;
@@ -816,9 +841,9 @@
     mudSources = [];
     entrances = [];
     mudWorkers = [];
-    carryingMud = false;
-    carriedMudSource = null;
-    mudTrail = [];
+    reportedMudSource = null;
+    mudReportTrail = [];
+    mudDiscovered = 0;
     flooded = new Set();
     floodFrontier = [];
     level2RainStarted = false;
@@ -870,14 +895,16 @@
     if (currentLevel === 2) {
       const sealed = entrances.filter(e => e.sealed).length;
       populationCountEl.textContent = `${sealed} / ${entrances.length || LEVEL2_ENTRANCE_COUNT}`;
-      foodScoreEl.textContent = carryingMud ? '1块' : '0块';
-      workerCountEl.textContent = String(mudWorkers.length);
+      foodScoreEl.textContent = `${mudDiscovered} / ${mudSources.length || 3}`;
+      workerCountEl.textContent = String(LEVEL2_WORKER_LIMIT);
       const left = Math.max(0, Math.ceil(LEVEL2_SECONDS - (now - level2StartTime) / 1000));
       discoveredCountEl.textContent = level2RainStarted ? '进水中' : `${left}s`;
       populationBarEl.style.width = `${entrances.length ? (sealed / entrances.length) * 100 : 0}%`;
-      buffTextEl.textContent = carryingMud
-        ? '🟤 正在搬泥：把它送到蓝色入口'
-        : '施工诀窍：你先送1块，工蚁就会沿你的路线接力';
+      buffTextEl.textContent = reportedMudSource
+        ? '🟤 已发现泥土：现在回绿色蚁穴报信'
+        : mudWorkers.length
+          ? `🐜 ${mudWorkers.length}只工蚁正在搬泥`
+          : '找到泥土 → 回巢报信 → 10只工蚁出发搬运';
       return;
     }
 
@@ -1134,12 +1161,14 @@
     activeBuffLabel = '';
 
     player = { ...nest, facing: 'right' };
+    population = POPULATION_TARGET;
+    workerLimit = LEVEL2_WORKER_LIMIT;
     entrances = pickLevelTwoEntrances(LEVEL2_ENTRANCE_COUNT);
-    mudSources = pickMudSources(2);
+    mudSources = pickMudSources(3);
     mudWorkers = [];
-    carryingMud = false;
-    carriedMudSource = null;
-    mudTrail = [];
+    reportedMudSource = null;
+    mudReportTrail = [];
+    mudDiscovered = 0;
     flooded = new Set();
     floodFrontier = [];
     level2RainStarted = false;
@@ -1154,66 +1183,194 @@
       return;
     }
 
-    missionTextEl.textContent = '先找到棕色泥堆，自动扛起一块泥，再送到任意蓝色入口。';
+    missionTextEl.textContent = '先去寻找棕色泥堆。碰到泥堆后不要自己搬，回绿色蚁穴报信。';
     updateUI(level2StartTime);
-    showToast('第2关开始：90秒后暴雨进水！', 2800);
+    showToast('第2关开始：找到泥土后回巢，喊10只工蚁来搬！', 3000);
     requestRender();
   }
 
   function handleLevelTwoPlayerMove() {
-    if (carryingMud) {
-      const last = mudTrail[mudTrail.length - 1];
-      if (!last || !sameNode(last, player)) mudTrail.push({ r: player.r, c: player.c });
+    if (reportedMudSource) {
+      const last = mudReportTrail[mudReportTrail.length - 1];
+      if (!last || !sameNode(last, player)) {
+        mudReportTrail.push({ r: player.r, c: player.c });
+      }
 
-      const entrance = entrances.find(e => !e.sealed && sameNode(e, player));
-      if (entrance) {
-        deliverMudToEntrance(entrance);
+      if (sameNode(player, nest)) {
+        activateMudSource(reportedMudSource, mudReportTrail);
+        reportedMudSource = null;
+        mudReportTrail = [];
+      }
+      return;
+    }
+
+    const source = mudSources.find(
+      s => s.units > 0 && !s.discovered && playerTouchesFood(s)
+    );
+    if (!source) return;
+
+    source.discovered = true;
+    mudDiscovered += 1;
+    reportedMudSource = source;
+    source.reportNode = { r: player.r, c: player.c };
+    mudReportTrail = [{ r: player.r, c: player.c }];
+    missionTextEl.textContent = '发现泥土了！像第一关发现食物一样，现在回绿色蚁穴把位置告诉工蚁。';
+    showToast('🟤 发现泥堆！回巢报信，喊工蚁来搬。', 2200);
+  }
+
+  function activateMudSource(source, playerReturnTrail = []) {
+    if (!source || source.activated) return;
+
+    let route = null;
+    if (playerReturnTrail.length >= 2) {
+      route = playerReturnTrail.slice().reverse();
+      if (!sameNode(route[0], nest)) route.unshift({ ...nest });
+    } else {
+      route = bfsPath(nest, source.reportNode || source);
+    }
+
+    if (!route || route.length < 2) return;
+
+    source.activated = true;
+    source.route = route;
+    showToast('🐜 报信成功！10只工蚁出发搬泥。', 2400);
+    missionTextEl.textContent = '工蚁已经赶往泥堆。你继续寻找下一处泥土，让更多泥进入运输线。';
+    dispatchMudWorkers();
+  }
+
+  function chooseMudTargetEntrance(fromNode) {
+    const open = entrances.filter(e => !e.sealed && e.progress < e.required);
+    if (!open.length) return null;
+
+    let best = null;
+    for (const entrance of open) {
+      const path = bfsPath(fromNode, entrance);
+      if (!path) continue;
+      const score = entrance.progress * 1000 + path.length;
+      if (!best || score < best.score) best = { entrance, path, score };
+    }
+    return best;
+  }
+
+  function activeMudSourceWithUnits() {
+    const active = mudSources.filter(s => s.activated && s.units > 0);
+    if (!active.length) return null;
+    active.sort((a, b) => b.units - a.units);
+    return active[0];
+  }
+
+  function dispatchMudWorkers() {
+    if (currentLevel !== 2 || status !== 'playing') return;
+    const source = activeMudSourceWithUnits();
+    if (!source) return;
+
+    while (mudWorkers.length < LEVEL2_WORKER_LIMIT) {
+      mudWorkers.push({
+        sourceId: source.id,
+        entranceId: null,
+        path: source.route || bfsPath(nest, source),
+        index: 0,
+        direction: 1,
+        carrying: false,
+        progress: Math.random() * .22,
+        speed: .05 + Math.random() * .015,
+        phase: 'toMud'
+      });
+    }
+  }
+
+  function updateMudWorkers(dt) {
+    if (scanMode || currentLevel !== 2 || status !== 'playing') return;
+    dispatchMudWorkers();
+
+    const dead = new Set();
+
+    mudWorkers.forEach((w, idx) => {
+      if (!w.path || w.path.length < 2) {
+        dead.add(idx);
         return;
       }
-    }
 
-    if (!carryingMud) {
-      const source = mudSources.find(s => playerTouchesFood(s));
-      if (source) {
-        carryingMud = true;
-        carriedMudSource = source;
-        mudTrail = [{ r: player.r, c: player.c }];
-        missionTextEl.textContent = '扛到泥了！把它送到一个蓝色入口。你走的路会变成施工运输线。';
-        showToast('🟤 扛起1块泥，送去蓝色入口！', 1800);
+      w.progress += w.speed * dt;
+
+      while (w.progress >= 1) {
+        w.progress -= 1;
+        w.index += 1;
+
+        if (w.index < w.path.length - 1) continue;
+
+        if (w.phase === 'toMud') {
+          const source = mudSources.find(s => s.id === w.sourceId);
+          if (!source || source.units <= 0) {
+            dead.add(idx);
+            return;
+          }
+
+          const target = chooseMudTargetEntrance(source);
+          if (!target) {
+            dead.add(idx);
+            return;
+          }
+
+          source.units -= 1;
+          w.carrying = true;
+          w.entranceId = target.entrance.id;
+          w.path = target.path;
+          w.index = 0;
+          w.progress = 0;
+          w.phase = 'toEntrance';
+          continue;
+        }
+
+        if (w.phase === 'toEntrance') {
+          const entrance = entrances.find(e => e.id === w.entranceId);
+          if (entrance && !entrance.sealed) {
+            entrance.progress = Math.min(entrance.required, entrance.progress + 1);
+            if (entrance.progress >= entrance.required) sealEntrance(entrance);
+          }
+
+          w.carrying = false;
+          checkLevelTwoComplete();
+          if (status !== 'playing') {
+            dead.add(idx);
+            return;
+          }
+
+          const source = activeMudSourceWithUnits();
+          if (!source) {
+            dead.add(idx);
+            return;
+          }
+
+          const from = entrance || w.path[w.path.length - 1];
+          const pathBackToMud = bfsPath(from, source);
+          if (!pathBackToMud || pathBackToMud.length < 2) {
+            dead.add(idx);
+            return;
+          }
+
+          w.sourceId = source.id;
+          w.entranceId = null;
+          w.path = pathBackToMud;
+          w.index = 0;
+          w.progress = 0;
+          w.phase = 'toMud';
+        }
       }
+    });
+
+    mudWorkers = mudWorkers.filter((_, i) => !dead.has(i));
+
+    if (
+      !reportedMudSource &&
+      mudWorkers.length === 0 &&
+      mudSources.some(s => !s.discovered && s.units > 0) &&
+      entrances.some(e => !e.sealed)
+    ) {
+      missionTextEl.textContent = '这批泥搬完了。继续探索，找到下一处棕色泥堆并回巢报信。';
     }
   }
 
-  function deliverMudToEntrance(entrance) {
-    if (!carryingMud || entrance.sealed) return;
-
-    entrance.progress = Math.min(entrance.required, entrance.progress + 1);
-
-    if (!entrance.route && carriedMudSource && mudTrail.length >= 2) {
-      entrance.route = mudTrail.slice();
-      if (!sameNode(entrance.route[entrance.route.length - 1], entrance)) {
-        entrance.route.push({ r: entrance.r, c: entrance.c });
-      }
-      entrance.sourceId = carriedMudSource.id;
-      showToast('施工路线建立！工蚁开始接力搬泥。', 2100);
-    } else {
-      showToast(`入口封堵 ${entrance.progress}/${entrance.required}`, 1500);
-    }
-
-    carryingMud = false;
-    carriedMudSource = null;
-    mudTrail = [];
-
-    if (entrance.progress >= entrance.required) {
-      sealEntrance(entrance);
-    } else {
-      dispatchMudWorkers();
-      missionTextEl.textContent = '工蚁正在沿施工路线搬泥。你去给另一个入口建立路线。';
-    }
-
-    checkLevelTwoComplete();
-    updateUI();
-  }
 
   function sealEntrance(entrance) {
     if (entrance.sealed) return;
@@ -1383,22 +1540,46 @@
 
   function drawMudSources() {
     const { step } = boardMetrics();
+
     mudSources.forEach(source => {
+      if (source.units <= 0) return;
       const p = foodScreenPosition(source);
-      const s = Math.max(8, step * .58);
+      const s = Math.max(10, step * .66);
+
       ctx.save();
       ctx.translate(p.x, p.y);
-      ctx.shadowColor = 'rgba(113, 67, 34, .35)';
-      ctx.shadowBlur = Math.max(3, step * .18);
+      ctx.shadowColor = source.discovered
+        ? 'rgba(255, 188, 78, .5)'
+        : 'rgba(113, 67, 34, .38)';
+      ctx.shadowBlur = Math.max(4, step * .24);
       ctx.fillStyle = '#8a542f';
-      ctx.strokeStyle = '#4d2b18';
-      ctx.lineWidth = Math.max(1, step * .055);
+      ctx.strokeStyle = source.discovered ? '#ffc05b' : '#4d2b18';
+      ctx.lineWidth = Math.max(1.2, step * .065);
+
       [[-.34,.15,.46],[.15,.08,.5],[.02,-.28,.4]].forEach(([x,y,r]) => {
         ctx.beginPath();
         ctx.arc(x*s, y*s, r*s, 0, Math.PI * 2);
         ctx.fill();
         ctx.stroke();
       });
+      ctx.shadowBlur = 0;
+
+      if (source.discovered) {
+        const br = Math.max(6, step * .24);
+        ctx.fillStyle = '#21130c';
+        ctx.strokeStyle = '#ffd089';
+        ctx.lineWidth = Math.max(1, step * .05);
+        ctx.beginPath();
+        ctx.arc(s * .52, -s * .42, br, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.stroke();
+        ctx.fillStyle = '#fff4df';
+        ctx.font = `800 ${Math.max(8, step * .31)}px system-ui`;
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText(String(source.units), s * .52, -s * .42 + .2);
+      }
+
       ctx.restore();
     });
   }
@@ -1499,7 +1680,7 @@
     entrances = [];
     mudWorkers = [];
     flooded = new Set();
-    carryingMud = false;
+    reportedMudSource = null;
     player = { ...nest, facing: 'right' };
 
     enemies = [];
@@ -1910,19 +2091,6 @@
   function drawPlayer() {
     const p = nodeXY(player);
     drawAntAt(p.x, p.y, facingAngle(player.facing), '#ffc83d', 1.18, false);
-
-    if (currentLevel === 2 && carryingMud) {
-      const { step } = boardMetrics();
-      ctx.save();
-      ctx.fillStyle = '#8a542f';
-      ctx.strokeStyle = '#4d2b18';
-      ctx.lineWidth = Math.max(1, step * .05);
-      ctx.beginPath();
-      ctx.arc(p.x + step * .42, p.y - step * .34, Math.max(5, step * .3), 0, Math.PI * 2);
-      ctx.fill();
-      ctx.stroke();
-      ctx.restore();
-    }
 
     if (carriedDiscovery) {
       const { step } = boardMetrics();
