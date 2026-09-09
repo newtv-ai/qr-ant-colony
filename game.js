@@ -1146,7 +1146,14 @@
   }
 
   function showUpgradeSelection(level) {
-    if (chosenUpgradeLevels.has(level)) return;
+    if (chosenUpgradeLevels.has(level)) {
+      upgradeOverlayEl.hidden = true;
+      nextLevelBtn.hidden = false;
+      nextLevelBtn.disabled = false;
+      if (level === 1) nextLevelBtn.textContent = '进入第2关：暴雨来了 →';
+      if (level === 2) nextLevelBtn.textContent = '进入第3关：入侵者 →';
+      return;
+    }
     const options = upgradeOptionsForLevel(level);
     if (!options.length) return;
 
