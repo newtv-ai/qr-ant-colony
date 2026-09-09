@@ -161,6 +161,7 @@
   let migrationRaiders = [];
   let migrationFlooded = new Set();
   let migrationFloodFrontier = [];
+  let migrationFloodIndex = 0;
   let migrationFloodStarted = false;
   let migrationFloodAt = 0;
   let lastMigrationFloodTick = 0;
@@ -3087,6 +3088,7 @@
     migrationRaiders = [];
     migrationFlooded = new Set();
     migrationFloodFrontier = [];
+    migrationFloodIndex = 0;
     migrationFloodStarted = false;
     migrationFloodAt = 0;
     lastMigrationFloodTick = 0;
@@ -3242,17 +3244,18 @@
   function startMigrationFlood(now) {
     if (migrationFloodStarted) return;
     migrationFloodStarted=true;
+    migrationFloodIndex=0;
     lastMigrationFloodTick=now;
-    const k=nodeKey(nest.r,nest.c);
-    migrationFlooded.add(k);
-    migrationFloodFrontier=[{...nest}];
+    const first=migrationRoute?.[0] || nest;
+    migrationFlooded.add(nodeKey(first.r,first.c));
     gameStateBadge.textContent='洪水追来了';
     gameStateBadge.style.color='#5dc8ff';
-    showToast('🌊 洪水从旧巢涌来了！别让它追上蚁后。',2000);
+    showToast('🌊 洪水顺着迁徙通道从旧巢追来了！',2000);
   }
 
   function updateMigrationFlood(now) {
-    if (!migrationQueen) return;
+    if (!migrationQueen || !migrationRoute?.length) return;
+
     if (!migrationFloodStarted) {
       if (now>=migrationFloodAt) startMigrationFlood(now);
       else return;
@@ -3261,24 +3264,22 @@
     if (now-lastMigrationFloodTick<MIGRATION_FLOOD_INTERVAL) return;
     lastMigrationFloodTick=now;
 
-    const nextFrontier=[];
-    let budget=1;
-    while (migrationFloodFrontier.length && budget>0) {
-      const cur=migrationFloodFrontier.shift();
-      for (const n of graph.get(nodeKey(cur.r,cur.c))||[]) {
-        const k=nodeKey(n.r,n.c);
-        if (!componentSet.has(k)||migrationFlooded.has(k)) continue;
-        migrationFlooded.add(k);
-        nextFrontier.push({...n});
-        budget-=1;
-        if (budget<=0) break;
-      }
-    }
-    migrationFloodFrontier.push(...nextFrontier);
+    migrationFloodIndex=Math.min(
+      migrationRoute.length-1,
+      migrationFloodIndex+1
+    );
+    const floodedNode=migrationRoute[migrationFloodIndex];
+    migrationFlooded.add(nodeKey(floodedNode.r,floodedNode.c));
 
+    // The water intentionally follows the player's migration trail. A long,
+    // inefficient route therefore gives the flood more opportunities to catch
+    // the queen, making route planning matter in the finale.
     const q=migrationQueenNode();
-    if (migrationFlooded.has(nodeKey(q.r,q.c))) {
-      failLevelSix('洪水追上了蚁后。');
+    if (
+      migrationFloodIndex>=migrationQueen.index ||
+      migrationFlooded.has(nodeKey(q.r,q.c))
+    ) {
+      failLevelSix('洪水沿着你留下的迁徙路线追上了蚁后。');
     }
   }
 
