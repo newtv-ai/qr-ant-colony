@@ -35,6 +35,7 @@
   const mobileBiteBtn = document.querySelector('[data-mobile-action="bite"]');
   const mobileAcidBtn = document.querySelector('[data-mobile-action="acid"]');
   const scanHealthEl = document.getElementById('scanHealth');
+  const worldCodeEl = document.getElementById('worldCode');
   const shareBtn = document.getElementById('shareBtn');
   const resultOverlayEl = document.getElementById('resultOverlay');
   const resultTitleEl = document.getElementById('resultTitle');
@@ -1270,6 +1271,9 @@
 
     qrPayload = content || 'QR Ant Colony';
     setRunSeed(seed == null ? freshSeed() : seed);
+    if (worldCodeEl) {
+      worldCodeEl.textContent = `世界 ${(runSeed >>> 0).toString(36).toUpperCase()}`;
+    }
     resetStageRng(1);
     qrSafetyMode = false;
     qrVerifyFailures = 0;
