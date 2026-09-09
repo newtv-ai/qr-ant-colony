@@ -4180,16 +4180,29 @@
       scanPauseStarted = now;
     } else if (scanMode && status === 'playing' && scanPauseStarted) {
       const pausedFor = now - scanPauseStarted;
-      if (currentLevel === 2) level2StartTime += pausedFor;
-      if (currentLevel === 3) level3StartTime += pausedFor;
-      if (currentLevel === 4) level4StartTime += pausedFor;
+      if (currentLevel === 2) {
+        level2StartTime += pausedFor;
+        if (lastFloodTick) lastFloodTick += pausedFor;
+      }
+      if (currentLevel === 3) {
+        level3StartTime += pausedFor;
+        if (lastEnemySpawn) lastEnemySpawn += pausedFor;
+      }
+      if (currentLevel === 4) {
+        level4StartTime += pausedFor;
+        if (lastPreySpawn) lastPreySpawn += pausedFor;
+        if (lastAcidTime) lastAcidTime += pausedFor;
+      }
       if (currentLevel === 5) {
         level5StartTime += pausedFor;
         rivalStartAt += pausedFor;
+        if (lastAcidTime) lastAcidTime += pausedFor;
       }
       if (currentLevel === 6) {
         level6StartTime += pausedFor;
         if (migrationFloodAt) migrationFloodAt += pausedFor;
+        if (lastMigrationFloodTick) lastMigrationFloodTick += pausedFor;
+        if (lastAcidTime) lastAcidTime += pausedFor;
       }
       scanPauseStarted = 0;
     }
