@@ -249,9 +249,9 @@
   }
 
   function runGrade() {
-    if (runScore >= 9000) return 'S';
-    if (runScore >= 7600) return 'A';
-    if (runScore >= 6200) return 'B';
+    if (runScore >= 12600) return 'S';
+    if (runScore >= 11300) return 'A';
+    if (runScore >= 10100) return 'B';
     return 'C';
   }
 
