@@ -187,6 +187,134 @@
   function parseKey(key) { const [r, c] = key.split(',').map(Number); return { r, c }; }
   function sameNode(a, b) { return a && b && a.r === b.r && a.c === b.c; }
 
+  function hashSeed(text) {
+    let h = 2166136261 >>> 0;
+    const str = String(text || 'QR Ant Colony');
+    for (let i = 0; i < str.length; i++) {
+      h ^= str.charCodeAt(i);
+      h = Math.imul(h, 16777619);
+    }
+    return h >>> 0 || 0x6d2b79f5;
+  }
+
+  function freshSeed() {
+    try {
+      const arr = new Uint32Array(1);
+      crypto.getRandomValues(arr);
+      return arr[0] || hashSeed(Date.now());
+    } catch (_) {
+      return hashSeed(`${Date.now()}-${performance.now()}`);
+    }
+  }
+
+  function setRunSeed(seed) {
+    const n = Number(seed);
+    runSeed = Number.isFinite(n) ? (n >>> 0) : freshSeed();
+    if (!runSeed) runSeed = 0x6d2b79f5;
+    rngState = runSeed;
+  }
+
+  function resetStageRng(level) {
+    let mixed = (runSeed ^ Math.imul((level + 17) >>> 0, 0x9e3779b1)) >>> 0;
+    mixed ^= mixed >>> 16;
+    mixed = Math.imul(mixed, 0x85ebca6b) >>> 0;
+    mixed ^= mixed >>> 13;
+    rngState = mixed || 0x6d2b79f5;
+  }
+
+  function seededRandom() {
+    let x = rngState >>> 0;
+    x ^= x << 13;
+    x ^= x >>> 17;
+    x ^= x << 5;
+    rngState = x >>> 0 || 0x6d2b79f5;
+    return (rngState >>> 0) / 4294967296;
+  }
+
+  function challengeUrl() {
+    const url = new URL(location.href);
+    url.search = '';
+    url.hash = '';
+    url.searchParams.set('q', qrPayload || qrInput.value.trim() || 'QR Ant Colony');
+    url.searchParams.set('s', (runSeed >>> 0).toString(36));
+    return url.toString();
+  }
+
+  function syncChallengeUrl() {
+    try {
+      history.replaceState(null, '', challengeUrl());
+    } catch (_) {}
+  }
+
+  function runGrade() {
+    if (runScore >= 9000) return 'S';
+    if (runScore >= 7600) return 'A';
+    if (runScore >= 6200) return 'B';
+    return 'C';
+  }
+
+  function awardLevelScore(level, amount) {
+    if (levelScoreAwarded.has(level)) return;
+    levelScoreAwarded.add(level);
+    runScore += Math.max(0, Math.round(amount));
+  }
+
+  async function copyText(text) {
+    if (navigator.clipboard?.writeText) {
+      await navigator.clipboard.writeText(text);
+      return;
+    }
+    const area = document.createElement('textarea');
+    area.value = text;
+    area.style.position = 'fixed';
+    area.style.opacity = '0';
+    document.body.appendChild(area);
+    area.select();
+    document.execCommand('copy');
+    area.remove();
+  }
+
+  async function shareChallenge(withScore = false) {
+    const url = challengeUrl();
+    const seedCode = (runSeed >>> 0).toString(36).toUpperCase();
+    const scoreText = withScore
+      ? `我把蚁群带出了这个二维码世界：${runScore}分 · ${runGrade()}级。你能用同一张地图超过我吗？`
+      : '我发现了一张可以玩的二维码世界。地图、资源和事件都固定好了，你能带蚁群活下来吗？';
+    const text = `${scoreText}\n挑战码：${seedCode}`;
+
+    try {
+      if (navigator.share) {
+        await navigator.share({
+          title: 'QR Ant Colony · 同地图挑战',
+          text,
+          url
+        });
+        return;
+      }
+      await copyText(`${text}\n${url}`);
+      showToast('挑战链接已复制，发给朋友就能玩同一张地图！', 2400);
+    } catch (err) {
+      if (err?.name !== 'AbortError') {
+        try {
+          await copyText(`${text}\n${url}`);
+          showToast('挑战链接已复制！', 1800);
+        } catch (_) {
+          showToast('分享失败，请复制浏览器地址。', 1800);
+        }
+      }
+    }
+  }
+
+  function showFinalResult() {
+    const grade = runGrade();
+    resultGradeEl.textContent = grade;
+    resultScoreEl.textContent = `${runScore} 分`;
+    resultTitleEl.textContent = '大迁徙成功 · 这一代蚁群活下来了';
+    resultSummaryEl.textContent =
+      `路线效率 ${Math.round(migrationEfficiency * 100)}% · 世界种子 ${(runSeed >>> 0).toString(36).toUpperCase()}。把挑战链接发给朋友，对方会进入同一张二维码地图。`;
+    resultOverlayEl.hidden = false;
+  }
+
   function isDark(r, c) {
     return r >= 0 && c >= 0 && r < matrixSize && c < matrixSize && qr.isDark(r, c);
   }
