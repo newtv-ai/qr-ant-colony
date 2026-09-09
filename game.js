@@ -2220,6 +2220,297 @@
     };
   }
 
+  function entityPosition(entity) {
+    if (entity?.node && (!entity.path || entity.path.length < 2)) {
+      const p = nodeXY(entity.node);
+      return { x: p.x, y: p.y, angle: 0 };
+    }
+    return enemyPosition(entity);
+  }
+
+  function randomPlayableNode(origin = null, minDistance = 0) {
+    const pool = component.filter(n =>
+      !isFinderForbiddenNode(n) &&
+      !nodeTouchesProtected(n) &&
+      (!origin || Math.hypot(n.r - origin.r, n.c - origin.c) >= minDistance)
+    );
+    if (!pool.length) return component[Math.floor(seededRandom() * component.length)] || nest;
+    return pool[Math.floor(seededRandom() * pool.length)];
+  }
+
+  function roamPathFrom(start) {
+    for (let tries = 0; tries < 12; tries++) {
+      const target = randomPlayableNode(start, Math.max(5, matrixSize * .18));
+      const path = bfsPath(start, target);
+      if (path && path.length >= 4) return path;
+    }
+    return bfsPath(start, nest) || [{ ...start }, { ...nest }];
+  }
+
+  function startLevelFour() {
+    if (!qr || !component.length) return;
+
+    currentLevel = 4;
+    level4Unlocked = true;
+    status = 'playing';
+    resetStageRng(4);
+    setLevelFourUI();
+    gameStateBadge.textContent = '第4关 · 狩猎';
+    gameStateBadge.style.color = '#8ad5ff';
+
+    foods = [];
+    workers = [];
+    pheromoneRoutes = [];
+    mudSources = [];
+    entrances = [];
+    mudWorkers = [];
+    enemies = [];
+    flooded = new Set();
+    player = { ...nest, facing: 'right' };
+
+    prey = [];
+    preyDefeated = 0;
+    lastPreySpawn = 0;
+    lastAcidTime = 0;
+    acidEffectUntil = 0;
+    acidTargets = [];
+    level4StartTime = performance.now();
+    scanPauseStarted = 0;
+
+    for (let i = 0; i < 4; i++) spawnPrey();
+    lastPreySpawn = level4StartTime;
+
+    missionTextEl.textContent =
+      '甲虫会沿二维码通道逃窜。F先喷蚁酸减速，再靠近用Space咬击。';
+    updateUI(level4StartTime);
+    showToast('第4关：狩猎开始！F 蚁酸已解锁 💧', 3000);
+    requestRender();
+  }
+
+  function spawnPrey() {
+    if (currentLevel !== 4 || status !== 'playing') return;
+    const start = randomPlayableNode(player || nest, Math.max(7, matrixSize * .16));
+    const path = roamPathFrom(start);
+    if (!path || path.length < 2) return;
+
+    const ordinal = preyDefeated + prey.length + 1;
+    const big = ordinal % 4 === 0;
+    prey.push({
+      id: `prey-${runSeed}-${ordinal}-${Math.floor(seededRandom() * 1e6)}`,
+      path,
+      index: 0,
+      progress: seededRandom() * .45,
+      speed: big ? .028 : (.038 + seededRandom() * .010),
+      hp: big ? 3 : 2,
+      maxHp: big ? 3 : 2,
+      big,
+      slowedUntil: 0
+    });
+  }
+
+  function updatePrey(now, dt) {
+    prey.forEach(item => {
+      const slow = now < (item.slowedUntil || 0) ? .35 : 1;
+      item.progress += item.speed * slow * dt;
+
+      while (item.progress >= 1) {
+        item.progress -= 1;
+        item.index += 1;
+
+        if (item.index >= item.path.length - 1) {
+          const current = item.path[item.path.length - 1];
+          const nextPath = roamPathFrom(current);
+          item.path = nextPath;
+          item.index = 0;
+          item.progress = 0;
+          break;
+        }
+      }
+    });
+  }
+
+  function updateLevelFour(now, dt) {
+    if (scanMode || status !== 'playing') return;
+
+    updatePrey(now, dt);
+
+    const spawnInterval = 4200;
+    if (prey.length < 5 && now - lastPreySpawn >= spawnInterval) {
+      spawnPrey();
+      lastPreySpawn = now;
+    }
+
+    if (preyDefeated >= LEVEL4_TARGET) {
+      completeLevelFour(now);
+      return;
+    }
+
+    const elapsed = now - level4StartTime;
+    if (elapsed >= LEVEL4_SECONDS * 1000) {
+      failLevelFour();
+      return;
+    }
+
+    updateUI(now);
+  }
+
+  function completeLevelFour(now = performance.now()) {
+    if (status !== 'playing') return;
+    status = 'won';
+    const left = Math.max(0, Math.ceil(LEVEL4_SECONDS - (now - level4StartTime) / 1000));
+    awardLevelScore(4, 1200 + left * 12 + preyDefeated * 55);
+    level5Unlocked = true;
+    gameStateBadge.textContent = '第4关完成';
+    gameStateBadge.style.color = '#7bf59a';
+    missionTextEl.textContent =
+      '狩猎成功。下一关，两窝蚂蚁会争夺同一批食物：路线效率和战斗都要用上。';
+    buffTextEl.textContent = `✓ 猎杀 ${preyDefeated} · 当前总分 ${runScore}`;
+    setRoadmapActive(4);
+    nextLevelBtn.hidden = false;
+    nextLevelBtn.disabled = false;
+    nextLevelBtn.textContent = '进入第5关：争夺食物 →';
+    showToast('第4关完成！你已经掌握蚁酸狩猎 💧✓', 3600);
+  }
+
+  function failLevelFour() {
+    if (status !== 'playing') return;
+    status = 'lost';
+    gameStateBadge.textContent = '狩猎失败';
+    gameStateBadge.style.color = '#ff7777';
+    missionTextEl.textContent =
+      `时间到了，只猎到${preyDefeated}/${LEVEL4_TARGET}。先用F减速，不要一直追着高速甲虫跑。`;
+    nextLevelBtn.hidden = false;
+    nextLevelBtn.disabled = false;
+    nextLevelBtn.textContent = '重试第4关';
+    showToast('猎物跑掉了，再试一次！', 2600);
+  }
+
+  function drawPrey() {
+    const now = performance.now();
+    prey.forEach(item => {
+      const p = entityPosition(item);
+      const slowed = now < (item.slowedUntil || 0);
+
+      ctx.save();
+      ctx.translate(p.x, p.y);
+      ctx.rotate(p.angle);
+      const { step } = boardMetrics();
+      const s = Math.max(6, step * (item.big ? .46 : .36));
+
+      ctx.fillStyle = slowed ? '#69c9db' : (item.big ? '#744d2d' : '#9a6839');
+      ctx.strokeStyle = '#2f1c0f';
+      ctx.lineWidth = Math.max(1, step * .055);
+      ctx.beginPath();
+      ctx.ellipse(0, 0, s * 1.05, s * .7, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.stroke();
+
+      ctx.fillStyle = slowed ? '#9be9f5' : '#c78d4d';
+      ctx.beginPath();
+      ctx.ellipse(s * .65, 0, s * .48, s * .5, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.stroke();
+
+      for (const sign of [-1, 1]) {
+        for (const x of [-.55, 0, .55]) {
+          ctx.beginPath();
+          ctx.moveTo(x * s, sign * s * .42);
+          ctx.lineTo((x + .12) * s, sign * s * 1.05);
+          ctx.stroke();
+        }
+      }
+      ctx.restore();
+
+      if (item.hp < item.maxHp || item.big) {
+        const { step } = boardMetrics();
+        const w = Math.max(14, step * .9);
+        const h = Math.max(2, step * .09);
+        ctx.save();
+        ctx.fillStyle = 'rgba(45,16,12,.72)';
+        ctx.fillRect(p.x - w/2, p.y - step * .65, w, h);
+        ctx.fillStyle = '#ffb95d';
+        ctx.fillRect(p.x - w/2, p.y - step * .65, w * (item.hp / item.maxHp), h);
+        ctx.restore();
+      }
+    });
+  }
+
+  function acidAttack() {
+    if (currentLevel < 4 || currentLevel > 6 || status !== 'playing' || scanMode) {
+      if (currentLevel < 4) showToast('💧 蚁酸会在第4关「狩猎」解锁。', 1400);
+      return;
+    }
+
+    const now = performance.now();
+    if (now - lastAcidTime < ACID_COOLDOWN) return;
+    lastAcidTime = now;
+    acidEffectUntil = now + 220;
+
+    const pp = nodeXY(player);
+    const facing = {
+      right: [1, 0],
+      left: [-1, 0],
+      down: [0, 1],
+      up: [0, -1]
+    }[player.facing] || [1, 0];
+    const { step } = boardMetrics();
+    const range = Math.max(58, step * 5.2);
+
+    const targets =
+      currentLevel === 4 ? prey :
+      currentLevel === 5 ? rivalWorkers :
+      currentLevel === 6 ? migrationRaiders :
+      [];
+
+    const hits = [];
+    targets.forEach(entity => {
+      const ep = entityPosition(entity);
+      const dx = ep.x - pp.x;
+      const dy = ep.y - pp.y;
+      const d = Math.hypot(dx, dy);
+      if (d > range) return;
+      const dot = d < .01 ? 1 : (dx / d) * facing[0] + (dy / d) * facing[1];
+      if (dot < .05) return;
+      hits.push({ entity, d });
+    });
+
+    hits.sort((a, b) => a.d - b.d);
+    acidTargets = hits.slice(0, 3).map(hit => hit.entity);
+    acidTargets.forEach(entity => {
+      entity.slowedUntil = now + ACID_SLOW_MS;
+    });
+
+    showToast(
+      acidTargets.length
+        ? `💧 蚁酸命中${acidTargets.length}个目标 · 减速3.6秒`
+        : '蚁酸喷空了',
+      850
+    );
+    requestRender();
+  }
+
+  function drawAcidEffect() {
+    if (performance.now() > acidEffectUntil) return;
+    const p = nodeXY(player);
+    const { step } = boardMetrics();
+    const angle = facingAngle(player.facing);
+
+    ctx.save();
+    ctx.translate(p.x, p.y);
+    ctx.rotate(angle);
+    ctx.fillStyle = 'rgba(81, 214, 219, .16)';
+    ctx.strokeStyle = 'rgba(103, 238, 232, .82)';
+    ctx.lineWidth = Math.max(1.5, step * .08);
+    ctx.beginPath();
+    ctx.moveTo(0, 0);
+    ctx.arc(0, 0, Math.max(50, step * 5), -.36, .36);
+    ctx.closePath();
+    ctx.fill();
+    ctx.stroke();
+    ctx.restore();
+  }
+
+
   function updateEnemies(dt) {
     if (scanMode || currentLevel !== 3 || status !== 'playing') return;
     const escaped = new Set();
