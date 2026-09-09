@@ -172,6 +172,7 @@
   let runSeed = 0;
   let rngState = 0;
   let runScore = 0;
+  let friendTargetScore = 0;
   let levelScoreAwarded = new Set();
 
   let qrPayload = '';
@@ -233,18 +234,19 @@
     return (rngState >>> 0) / 4294967296;
   }
 
-  function challengeUrl() {
+  function challengeUrl(targetScore = 0) {
     const url = new URL(location.href);
     url.search = '';
     url.hash = '';
     url.searchParams.set('q', qrPayload || qrInput.value.trim() || 'QR Ant Colony');
     url.searchParams.set('s', (runSeed >>> 0).toString(36));
+    if (targetScore > 0) url.searchParams.set('t', String(Math.round(targetScore)));
     return url.toString();
   }
 
   function syncChallengeUrl() {
     try {
-      history.replaceState(null, '', challengeUrl());
+      history.replaceState(null, '', challengeUrl(0));
     } catch (_) {}
   }
 
@@ -277,7 +279,7 @@
   }
 
   async function shareChallenge(withScore = false) {
-    const url = challengeUrl();
+    const url = challengeUrl(withScore ? runScore : 0);
     const seedCode = (runSeed >>> 0).toString(36).toUpperCase();
     const scoreText = withScore
       ? `我把蚁群带出了这个二维码世界：${runScore}分 · ${runGrade()}级。你能用同一张地图超过我吗？`
@@ -311,9 +313,20 @@
     const grade = runGrade();
     resultGradeEl.textContent = grade;
     resultScoreEl.textContent = `${runScore} 分`;
-    resultTitleEl.textContent = '大迁徙成功 · 这一代蚁群活下来了';
-    resultSummaryEl.textContent =
-      `路线效率 ${Math.round(migrationEfficiency * 100)}% · 世界种子 ${(runSeed >>> 0).toString(36).toUpperCase()}。把挑战链接发给朋友，对方会进入同一张二维码地图。`;
+
+    if (friendTargetScore > 0) {
+      const delta = runScore - friendTargetScore;
+      resultTitleEl.textContent = delta > 0
+        ? '你超过了好友的成绩！'
+        : '迁徙成功 · 再挑战一次还能更高';
+      resultSummaryEl.textContent = delta > 0
+        ? `超过好友 ${delta} 分 · 路线效率 ${Math.round(migrationEfficiency*100)}% · 世界 ${(runSeed>>>0).toString(36).toUpperCase()}。现在把你的新成绩继续发出去。`
+        : `好友目标 ${friendTargetScore} 分，你还差 ${Math.abs(delta)} 分。点击“同地图重新挑战”可以立即再来一局。`;
+    } else {
+      resultTitleEl.textContent = '大迁徙成功 · 这一代蚁群活下来了';
+      resultSummaryEl.textContent =
+        `路线效率 ${Math.round(migrationEfficiency * 100)}% · 世界种子 ${(runSeed >>> 0).toString(36).toUpperCase()}。把挑战链接发给朋友，对方会进入同一张二维码地图。`;
+    }
     resultOverlayEl.hidden = false;
   }
 
@@ -1263,16 +1276,19 @@
     return chosen;
   }
 
-  function resetGame(content, seed = null, updateAddress = true) {
+  function resetGame(content, seed = null, updateAddress = true, challengeTarget = 0) {
     if (typeof qrcode !== 'function') {
       showToast('二维码库加载失败，请检查网络后刷新。', 3200);
       return;
     }
 
     qrPayload = content || 'QR Ant Colony';
+    friendTargetScore = Math.max(0, Number(challengeTarget) || 0);
     setRunSeed(seed == null ? freshSeed() : seed);
     if (worldCodeEl) {
-      worldCodeEl.textContent = `世界 ${(runSeed >>> 0).toString(36).toUpperCase()}`;
+      worldCodeEl.textContent = friendTargetScore > 0
+        ? `世界 ${(runSeed >>> 0).toString(36).toUpperCase()} · 目标 ${friendTargetScore}`
+        : `世界 ${(runSeed >>> 0).toString(36).toUpperCase()}`;
     }
     resetStageRng(1);
     qrSafetyMode = false;
@@ -4098,12 +4114,12 @@
 
   replayChallengeBtn.addEventListener('click', () => {
     resultOverlayEl.hidden = true;
-    resetGame(qrPayload, runSeed, true);
+    resetGame(qrPayload, runSeed, true, friendTargetScore);
   });
 
   newWorldBtn.addEventListener('click', () => {
     resultOverlayEl.hidden = true;
-    resetGame(qrInput.value.trim() || qrPayload || 'QR Ant Colony', freshSeed(), true);
+    resetGame(qrInput.value.trim() || qrPayload || 'QR Ant Colony', freshSeed(), true, 0);
   });
 
   document.querySelectorAll('[data-dir]').forEach(btn => {
@@ -4144,11 +4160,11 @@
   });
 
   generateBtn.addEventListener('click', () => {
-    resetGame(qrInput.value.trim() || 'QR Ant Colony', freshSeed(), true);
+    resetGame(qrInput.value.trim() || 'QR Ant Colony', freshSeed(), true, 0);
   });
 
   qrInput.addEventListener('keydown', e => {
-    if (e.key === 'Enter') resetGame(qrInput.value.trim() || 'QR Ant Colony', freshSeed(), true);
+    if (e.key === 'Enter') resetGame(qrInput.value.trim() || 'QR Ant Colony', freshSeed(), true, 0);
   });
 
   scanBtn.addEventListener('click', () => {
@@ -4186,13 +4202,24 @@
   const sharedContent = initialParams.get('q');
   const sharedSeedRaw = initialParams.get('s');
   const sharedSeed = sharedSeedRaw ? parseInt(sharedSeedRaw, 36) : NaN;
+  const sharedTarget = Math.max(0, Number(initialParams.get('t')) || 0);
 
   if (sharedContent) {
     qrInput.value = sharedContent;
-    resetGame(sharedContent, Number.isFinite(sharedSeed) ? sharedSeed : hashSeed(sharedContent), false);
-    showToast('好友挑战已载入：同一二维码、同一世界种子。', 3000);
+    resetGame(
+      sharedContent,
+      Number.isFinite(sharedSeed) ? sharedSeed : hashSeed(sharedContent),
+      false,
+      sharedTarget
+    );
+    showToast(
+      sharedTarget > 0
+        ? `好友挑战已载入：同地图目标 ${sharedTarget} 分！`
+        : '好友挑战已载入：同一二维码、同一世界种子。',
+      3200
+    );
   } else {
-    resetGame(qrInput.value, freshSeed(), true);
+    resetGame(qrInput.value, freshSeed(), true, 0);
   }
   requestAnimationFrame(loop);
 })();
