@@ -2537,8 +2537,47 @@
     enemies = enemies.filter((_, i) => !escaped.has(i));
   }
 
+  function combatTargetsForLevel() {
+    if (currentLevel === 3) return enemies;
+    if (currentLevel === 4) return prey;
+    if (currentLevel === 5) return rivalWorkers;
+    if (currentLevel === 6) return migrationRaiders;
+    return [];
+  }
+
+  function defeatCombatTarget(target) {
+    if (currentLevel === 3) {
+      enemies = enemies.filter(e => e !== target);
+      enemiesDefeated += 1;
+      showToast(target.big ? '击退大型敌蚁！' : '击退敌蚁！', 950);
+      return;
+    }
+
+    if (currentLevel === 4) {
+      prey = prey.filter(e => e !== target);
+      preyDefeated += 1;
+      showToast(target.big ? '猎倒大型甲虫！' : '猎倒甲虫！', 900);
+      return;
+    }
+
+    if (currentLevel === 5) {
+      if (target.carrying && target.foodId) {
+        const food = foods.find(f => f.id === target.foodId);
+        if (food) food.units += 1;
+      }
+      rivalWorkers = rivalWorkers.filter(e => e !== target);
+      showToast('赶跑一只抢食物的敌蚁！', 850);
+      return;
+    }
+
+    if (currentLevel === 6) {
+      migrationRaiders = migrationRaiders.filter(e => e !== target);
+      showToast('清掉一只拦路敌蚁！', 850);
+    }
+  }
+
   function biteAttack() {
-    if (currentLevel !== 3 || status !== 'playing' || scanMode) {
+    if (currentLevel < 3 || currentLevel > 6 || status !== 'playing' || scanMode) {
       if (currentLevel < 3) showToast('🦷 咬击会在第3关「入侵者」解锁。', 1400);
       return;
     }
@@ -2556,18 +2595,18 @@
       up: [0, -1]
     }[player.facing] || [1, 0];
     const { step } = boardMetrics();
-    const range = Math.max(24, step * 1.9);
+    const range = Math.max(24, step * 2.05);
 
     let best = null;
-    enemies.forEach(enemy => {
-      const ep = enemyPosition(enemy);
+    combatTargetsForLevel().forEach(target => {
+      const ep = entityPosition(target);
       const dx = ep.x - pp.x;
       const dy = ep.y - pp.y;
       const d = Math.hypot(dx, dy);
-      if (d > range || d < .01) return;
-      const dot = (dx / d) * facing[0] + (dy / d) * facing[1];
-      if (dot < .25) return;
-      if (!best || d < best.d) best = { enemy, d };
+      if (d > range) return;
+      const dot = d < .01 ? 1 : (dx / d) * facing[0] + (dy / d) * facing[1];
+      if (dot < .18) return;
+      if (!best || d < best.d) best = { target, d };
     });
 
     if (!best) {
@@ -2577,17 +2616,14 @@
     }
 
     const biteDamage = 1 + biteDamageBonus;
-    best.enemy.hp -= biteDamage;
-    if (best.enemy.hp <= 0) {
-      enemies = enemies.filter(e => e !== best.enemy);
-      enemiesDefeated += 1;
-      showToast(best.enemy.big ? '击退大型敌蚁！' : '击退敌蚁！', 950);
+    best.target.hp -= biteDamage;
+    if (best.target.hp <= 0) {
+      defeatCombatTarget(best.target);
     } else {
-      showToast(`咬中！伤害 ${1 + biteDamageBonus} · 还剩 ${best.enemy.hp}`, 700);
+      showToast(`咬中！伤害 ${biteDamage} · 目标还剩 ${best.target.hp}`, 700);
     }
     requestRender();
   }
-
 
   function guardNodes() {
     if (!guardCount) return [];
