@@ -951,6 +951,40 @@
     setRoadmapActive(5);
   }
 
+  function setLevelSixUI() {
+    chapterNumberEl.textContent = '第 6 关';
+    chapterTitleEl.textContent = '大迁徙';
+    chapterDescEl.textContent =
+      '先找到远处的迁徙出口，再回巢带蚁后出发。洪水会从旧巢后方追来，敌蚁还会堵路。';
+    statLabel1El.textContent = '迁徙阶段';
+    statLabel2El.textContent = '路线效率';
+    statLabel3El.textContent = '拦路敌蚁';
+    statLabel4El.textContent = '侦察时间';
+    legendCardEl.innerHTML = `
+      <h2>图例与规则</h2>
+      <div class="legend"><span class="legend-ant player-ant"></span><span>你：先探路，再护送蚁后</span></div>
+      <div class="legend"><span style="color:#d9c2ff;font-size:17px">●</span><span>蚁后：必须安全抵达出口</span></div>
+      <div class="legend"><span style="color:#75d7ff;font-size:18px">◎</span><span>迁徙出口：先找到，再回巢报信</span></div>
+      <div class="legend"><span class="legend-water"></span><span>洪水：迁徙开始后从旧巢追来</span></div>
+      <div class="legend"><span style="color:#ef6256;font-size:17px">🐜</span><span>拦路敌蚁：会卡住蚁后路线</span></div>
+      <div class="legend"><span style="font-size:17px">🦷💧</span><span>咬击 + 蚁酸：清路与减速</span></div>
+    `;
+    nextLevelBtn.hidden = true;
+    biteBtn.disabled = false;
+    biteBtn.classList.add('ready');
+    acidBtn.disabled = false;
+    acidBtn.classList.add('ready');
+    if (mobileBiteBtn) {
+      mobileBiteBtn.disabled = false;
+      mobileBiteBtn.classList.add('ready');
+    }
+    if (mobileAcidBtn) {
+      mobileAcidBtn.disabled = false;
+      mobileAcidBtn.classList.add('ready');
+    }
+    setRoadmapActive(6);
+  }
+
   function isFinderZoneNode(node) {
     const pad = 9;
     const inTop = node.r <= pad;
