@@ -1322,6 +1322,9 @@
     currentLevel = 1;
     level2Unlocked = false;
     level3Unlocked = false;
+    level4Unlocked = false;
+    level5Unlocked = false;
+    level6Unlocked = false;
     transportSpeedMultiplier = 1;
     engineeringSpeedMultiplier = 1;
     rainTimeBonus = 0;
@@ -1382,6 +1385,63 @@
   }
 
   function updateUI(now = performance.now()) {
+    if (currentLevel === 6) {
+      const scoutLeft = Math.max(0, Math.ceil(LEVEL6_SCOUT_SECONDS - (now - level6StartTime)/1000));
+      const phase = migrationQueen ? '护送蚁后' : (migrationExitFound ? '返回旧巢' : '寻找出口');
+      populationCountEl.textContent = phase;
+      foodScoreEl.textContent = `${Math.round(migrationEfficiency*100)}%`;
+      workerCountEl.textContent = String(migrationRaiders.length);
+      if (!migrationQueen) {
+        discoveredCountEl.textContent = `${scoutLeft}s`;
+        populationBarEl.style.width = migrationExitFound ? '50%' : '12%';
+      } else {
+        const progress = migrationQueen.path.length > 1
+          ? ((migrationQueen.index + migrationQueen.progress) / (migrationQueen.path.length - 1)) * 100
+          : 0;
+        populationBarEl.style.width = `${Math.min(100,progress)}%`;
+        discoveredCountEl.textContent = migrationFloodStarted
+          ? '洪水追赶'
+          : `${Math.max(0,Math.ceil((migrationFloodAt-now)/1000))}s后洪水`;
+      }
+      buffTextEl.textContent = migrationQueen
+        ? (migrationPathBlocked()
+            ? '⚠ 蚁后被拦路敌蚁卡住了，快去清路'
+            : '👑 护送中：路线越高效，蚁后迁徙越快')
+        : (migrationExitFound
+            ? '已记录迁徙路线：现在回绿色旧巢'
+            : '你走出去的路径会成为整个蚁群的迁徙路线');
+      return;
+    }
+
+    if (currentLevel === 5) {
+      const left = Math.max(0,Math.ceil(LEVEL5_SECONDS-(now-level5StartTime)/1000));
+      populationCountEl.textContent = `${contestStored} / ${LEVEL5_TARGET}`;
+      foodScoreEl.textContent = `${rivalStored} / ${LEVEL5_TARGET}`;
+      workerCountEl.textContent = String(contestWorkerCount || LEVEL2_WORKER_LIMIT);
+      discoveredCountEl.textContent = `${left}s`;
+      populationBarEl.style.width = `${Math.min(100,(contestStored/LEVEL5_TARGET)*100)}%`;
+      buffTextEl.textContent = carriedDiscovery
+        ? '🍩 已发现食物：立刻回巢报信'
+        : rivalWorkers.length
+          ? `⚔️ 红色运输蚁 ${rivalWorkers.length}只 · F减速 / Space拦截`
+          : '抢先发现食物并建立高效运输线';
+      return;
+    }
+
+    if (currentLevel === 4) {
+      const left = Math.max(0,Math.ceil(LEVEL4_SECONDS-(now-level4StartTime)/1000));
+      populationCountEl.textContent = `${preyDefeated} / ${LEVEL4_TARGET}`;
+      foodScoreEl.textContent = String(preyDefeated);
+      workerCountEl.textContent = String(prey.length);
+      discoveredCountEl.textContent = `${left}s`;
+      populationBarEl.style.width = `${Math.min(100,(preyDefeated/LEVEL4_TARGET)*100)}%`;
+      const acidLeft = Math.max(0,Math.ceil((ACID_COOLDOWN-(now-lastAcidTime))/100)/10);
+      buffTextEl.textContent = acidLeft > 0
+        ? `💧 蚁酸冷却 ${acidLeft.toFixed(1)}s · 先减速再咬`
+        : '💧 蚁酸就绪 · F远程减速，Space近身咬击';
+      return;
+    }
+
     if (currentLevel === 3) {
       const left = Math.max(0, Math.ceil(LEVEL3_SECONDS - (now - level3StartTime) / 1000));
       populationCountEl.textContent = `${nestHp} / ${level3MaxNestHp()}`;
@@ -1469,6 +1529,23 @@
 
     if (currentLevel === 2) {
       handleLevelTwoPlayerMove();
+      requestRender();
+      return;
+    }
+
+    if (currentLevel === 5) {
+      handleLevelFivePlayerMove();
+      requestRender();
+      return;
+    }
+
+    if (currentLevel === 6) {
+      handleLevelSixPlayerMove();
+      requestRender();
+      return;
+    }
+
+    if (currentLevel >= 3) {
       requestRender();
       return;
     }
@@ -3584,7 +3661,7 @@
   }
 
   function drawBiteEffect() {
-    if (currentLevel !== 3 || performance.now() > biteEffectUntil) return;
+    if (currentLevel < 3 || currentLevel > 6 || performance.now() > biteEffectUntil) return;
     const p = nodeXY(player);
     const { step } = boardMetrics();
     const offset = step * .72;
@@ -3864,6 +3941,32 @@
       drawEnemies();
       drawPlayer();
       drawBiteEffect();
+    } else if (currentLevel === 4) {
+      drawNest();
+      drawPrey();
+      drawPlayer();
+      drawBiteEffect();
+      drawAcidEffect();
+    } else if (currentLevel === 5) {
+      drawPheromones();
+      foods.forEach(drawFood);
+      drawNest();
+      drawRivalNest();
+      drawWorkers();
+      drawRivalWorkers();
+      drawPlayer();
+      drawBiteEffect();
+      drawAcidEffect();
+    } else if (currentLevel === 6) {
+      drawMigrationFlood();
+      drawMigrationRoute();
+      drawMigrationExit();
+      drawNest();
+      drawMigrationQueen();
+      drawMigrationRaiders();
+      drawPlayer();
+      drawBiteEffect();
+      drawAcidEffect();
     } else {
       drawPheromones();
       foods.forEach(drawFood);
@@ -3888,6 +3991,9 @@
     if (status === 'playing') {
       if (currentLevel === 2) updateLevelTwo(now, dt);
       else if (currentLevel === 3) updateLevelThree(now, dt);
+      else if (currentLevel === 4) updateLevelFour(now, dt);
+      else if (currentLevel === 5) updateLevelFive(now, dt);
+      else if (currentLevel === 6) updateLevelSix(now, dt);
       else {
         updateWorkers(dt);
         updateUI(now);
@@ -3922,7 +4028,7 @@
       biteAttack();
     } else if (e.code === 'KeyF') {
       e.preventDefault();
-      showToast('💧 蚁酸会在第4关「狩猎」解锁。', 1500);
+      acidAttack();
     }
   }
 
@@ -3933,6 +4039,12 @@
     else if (currentLevel === 2 && status === 'lost') startLevelTwo();
     else if (currentLevel === 2 && status === 'won' && level3Unlocked) startLevelThree();
     else if (currentLevel === 3 && status === 'lost') startLevelThree();
+    else if (currentLevel === 3 && status === 'won' && level4Unlocked) startLevelFour();
+    else if (currentLevel === 4 && status === 'lost') startLevelFour();
+    else if (currentLevel === 4 && status === 'won' && level5Unlocked) startLevelFive();
+    else if (currentLevel === 5 && status === 'lost') startLevelFive();
+    else if (currentLevel === 5 && status === 'won' && level6Unlocked) startLevelSix();
+    else if (currentLevel === 6 && status === 'lost') startLevelSix();
   });
 
   roadmap2El.addEventListener('click', () => {
@@ -3943,8 +4055,22 @@
     if (level3Unlocked && currentLevel !== 3) startLevelThree();
   });
 
+  roadmap4El.addEventListener('click', () => {
+    if (level4Unlocked && currentLevel !== 4) startLevelFour();
+  });
+
+  roadmap5El.addEventListener('click', () => {
+    if (level5Unlocked && currentLevel !== 5) startLevelFive();
+  });
+
+  roadmap6El.addEventListener('click', () => {
+    if (level6Unlocked && currentLevel !== 6) startLevelSix();
+  });
+
   biteBtn.addEventListener('click', biteAttack);
   if (mobileBiteBtn) mobileBiteBtn.addEventListener('click', biteAttack);
+  acidBtn.addEventListener('click', acidAttack);
+  if (mobileAcidBtn) mobileAcidBtn.addEventListener('click', acidAttack);
 
   document.querySelectorAll('[data-dir]').forEach(btn => {
     let hold = null;
