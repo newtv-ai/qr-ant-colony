@@ -28,11 +28,22 @@
   const roadmap2El = document.getElementById('roadmap2');
   const roadmap3El = document.getElementById('roadmap3');
   const roadmap4El = document.getElementById('roadmap4');
+  const roadmap5El = document.getElementById('roadmap5');
+  const roadmap6El = document.getElementById('roadmap6');
   const biteBtn = document.getElementById('biteBtn');
   const acidBtn = document.getElementById('acidBtn');
   const mobileBiteBtn = document.querySelector('[data-mobile-action="bite"]');
   const mobileAcidBtn = document.querySelector('[data-mobile-action="acid"]');
   const scanHealthEl = document.getElementById('scanHealth');
+  const shareBtn = document.getElementById('shareBtn');
+  const resultOverlayEl = document.getElementById('resultOverlay');
+  const resultTitleEl = document.getElementById('resultTitle');
+  const resultGradeEl = document.getElementById('resultGrade');
+  const resultScoreEl = document.getElementById('resultScore');
+  const resultSummaryEl = document.getElementById('resultSummary');
+  const shareRunBtn = document.getElementById('shareRunBtn');
+  const replayChallengeBtn = document.getElementById('replayChallengeBtn');
+  const newWorldBtn = document.getElementById('newWorldBtn');
   const upgradeOverlayEl = document.getElementById('upgradeOverlay');
   const upgradeTitleEl = document.getElementById('upgradeTitle');
   const upgradeSubtitleEl = document.getElementById('upgradeSubtitle');
@@ -52,6 +63,14 @@
   const LEVEL3_NEST_HP = 5;
   const BITE_COOLDOWN = 260;
   const GUARD_BASE_COOLDOWN = 950;
+  const LEVEL4_SECONDS = 60;
+  const LEVEL4_TARGET = 8;
+  const ACID_COOLDOWN = 950;
+  const ACID_SLOW_MS = 3600;
+  const LEVEL5_SECONDS = 75;
+  const LEVEL5_TARGET = 8;
+  const LEVEL6_SCOUT_SECONDS = 45;
+  const MIGRATION_FLOOD_INTERVAL = 520;
 
   let qr = null;
   let matrixSize = 0;
@@ -114,6 +133,44 @@
   let guardCount = 0;
   let chosenUpgradeLevels = new Set();
   let chosenUpgradeNames = [];
+
+  let level4Unlocked = false;
+  let prey = [];
+  let level4StartTime = 0;
+  let lastPreySpawn = 0;
+  let preyDefeated = 0;
+  let lastAcidTime = 0;
+  let acidEffectUntil = 0;
+  let acidTargets = [];
+
+  let level5Unlocked = false;
+  let rivalNest = null;
+  let contestStored = 0;
+  let rivalStored = 0;
+  let rivalWorkers = [];
+  let contestWorkerCount = 0;
+  let level5StartTime = 0;
+  let rivalStartAt = 0;
+
+  let level6Unlocked = false;
+  let migrationExit = null;
+  let migrationTrail = [];
+  let migrationRoute = null;
+  let migrationExitFound = false;
+  let migrationQueen = null;
+  let migrationRaiders = [];
+  let migrationFlooded = new Set();
+  let migrationFloodFrontier = [];
+  let migrationFloodStarted = false;
+  let migrationFloodAt = 0;
+  let lastMigrationFloodTick = 0;
+  let level6StartTime = 0;
+  let migrationEfficiency = 1;
+
+  let runSeed = 0;
+  let rngState = 0;
+  let runScore = 0;
+  let levelScoreAwarded = new Set();
 
   let qrPayload = '';
   let qrSafetyMode = false;
