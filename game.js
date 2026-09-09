@@ -667,7 +667,7 @@
 
     // Fisher-Yates shuffle: the same QR gets different food positions each run.
     for (let i = candidates.length - 1; i > 0; i--) {
-      const j = Math.floor(Math.random() * (i + 1));
+      const j = Math.floor(seededRandom() * (i + 1));
       [candidates[i], candidates[j]] = [candidates[j], candidates[i]];
     }
 
@@ -897,7 +897,7 @@
   function shuffled(items) {
     const arr = items.slice();
     for (let i = arr.length - 1; i > 0; i--) {
-      const j = Math.floor(Math.random() * (i + 1));
+      const j = Math.floor(seededRandom() * (i + 1));
       [arr[i], arr[j]] = [arr[j], arr[i]];
     }
     return arr;
@@ -1161,13 +1161,15 @@
     return chosen;
   }
 
-  function resetGame(content) {
+  function resetGame(content, seed = null, updateAddress = true) {
     if (typeof qrcode !== 'function') {
       showToast('二维码库加载失败，请检查网络后刷新。', 3200);
       return;
     }
 
     qrPayload = content || 'QR Ant Colony';
+    setRunSeed(seed == null ? freshSeed() : seed);
+    resetStageRng(1);
     qrSafetyMode = false;
     qrVerifyFailures = 0;
     qrVerifySuccesses = 0;
@@ -1198,7 +1200,7 @@
       { kind: 'cupcake', units: 3, level: 2, name: '杯子蛋糕' }
     ];
     for (let i = foodTiers.length - 1; i > 0; i--) {
-      const j = Math.floor(Math.random() * (i + 1));
+      const j = Math.floor(seededRandom() * (i + 1));
       [foodTiers[i], foodTiers[j]] = [foodTiers[j], foodTiers[i]];
     }
     foods = foodNodes.map((node, i) => {
@@ -1231,6 +1233,9 @@
     lastGuardAttack = 0;
     guardFlashUntil = 0;
     upgradeOverlayEl.hidden = true;
+    resultOverlayEl.hidden = true;
+    runScore = 0;
+    levelScoreAwarded = new Set();
     workers = [];
     pheromoneRoutes = [];
     mudSources = [];
@@ -1271,7 +1276,8 @@
     gameStateBadge.style.color = '';
     missionTextEl.textContent = '先熟悉移动，去白色通道里找到第一份食物。';
     updateUI();
-    showToast('第1关：第一顿饭。不限时间，把人口养到10只！', 2800);
+    showToast(`第1关：第一顿饭 · 世界种子 ${(runSeed >>> 0).toString(36).toUpperCase()}`, 2800);
+    if (updateAddress) syncChallengeUrl();
     requestRender();
   }
 
@@ -1425,14 +1431,14 @@
       const food = activeFoods[workers.length % activeFoods.length];
       const routeObj = pheromoneRoutes.find(r => r.foodId === food.id);
       if (!routeObj) break;
-      const baseSpeed = .055 + Math.random() * .018;
+      const baseSpeed = .055 + seededRandom() * .018;
       workers.push({
         foodId: food.id,
         path: routeObj.path,
         index: 0,
         direction: 1,
         carrying: false,
-        progress: Math.random() * .6,
+        progress: seededRandom() * .6,
         routeEfficiency: routeObj.efficiency || 1,
         baseSpeed,
         speed: baseSpeed * routeSpeedFactor(routeObj.efficiency || 1) * transportSpeedMultiplier
@@ -1564,6 +1570,7 @@
     speedBoostUntil = 0;
     activeBuffLabel = '';
 
+    resetStageRng(2);
     player = { ...nest, facing: 'right' };
     population = POPULATION_TARGET;
     workerLimit = LEVEL2_WORKER_LIMIT;
@@ -1674,7 +1681,7 @@
     if (!source) return;
 
     while (mudWorkers.length < LEVEL2_WORKER_LIMIT) {
-      const baseSpeed = .05 + Math.random() * .015;
+      const baseSpeed = .05 + seededRandom() * .015;
       mudWorkers.push({
         sourceId: source.id,
         entranceId: null,
@@ -1682,7 +1689,7 @@
         index: 0,
         direction: 1,
         carrying: false,
-        progress: Math.random() * .22,
+        progress: seededRandom() * .22,
         baseSpeed,
         speed:
           baseSpeed *
@@ -1828,8 +1835,8 @@
           index: 0,
           direction: 1,
           carrying: true,
-          progress: Math.random() * .35,
-          speed: .05 + Math.random() * .014
+          progress: seededRandom() * .35,
+          speed: .05 + seededRandom() * .014
         });
       }
     }
@@ -2114,6 +2121,7 @@
     mudWorkers = [];
     flooded = new Set();
     reportedMudSource = null;
+    resetStageRng(3);
     player = { ...nest, facing: 'right' };
 
     enemies = [];
@@ -2161,7 +2169,7 @@
       index: 0,
       direction: 1,
       progress: 0,
-      speed: big ? .026 : (.036 + Math.random() * .008),
+      speed: big ? .026 : (.036 + seededRandom() * .008),
       hp: big ? 4 : 2,
       maxHp: big ? 4 : 2,
       big
@@ -2797,11 +2805,11 @@
   });
 
   generateBtn.addEventListener('click', () => {
-    resetGame(qrInput.value.trim() || 'QR Ant Colony');
+    resetGame(qrInput.value.trim() || 'QR Ant Colony', freshSeed(), true);
   });
 
   qrInput.addEventListener('keydown', e => {
-    if (e.key === 'Enter') resetGame(qrInput.value.trim() || 'QR Ant Colony');
+    if (e.key === 'Enter') resetGame(qrInput.value.trim() || 'QR Ant Colony', freshSeed(), true);
   });
 
   scanBtn.addEventListener('click', () => {
@@ -2826,6 +2834,17 @@
     requestRender();
   });
 
-  resetGame(qrInput.value);
+  const initialParams = new URLSearchParams(location.search);
+  const sharedContent = initialParams.get('q');
+  const sharedSeedRaw = initialParams.get('s');
+  const sharedSeed = sharedSeedRaw ? parseInt(sharedSeedRaw, 36) : NaN;
+
+  if (sharedContent) {
+    qrInput.value = sharedContent;
+    resetGame(sharedContent, Number.isFinite(sharedSeed) ? sharedSeed : hashSeed(sharedContent), false);
+    showToast('好友挑战已载入：同一二维码、同一世界种子。', 3000);
+  } else {
+    resetGame(qrInput.value, freshSeed(), true);
+  }
   requestAnimationFrame(loop);
 })();
