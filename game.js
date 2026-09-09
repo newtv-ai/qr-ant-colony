@@ -917,6 +917,40 @@
     setRoadmapActive(4);
   }
 
+  function setLevelFiveUI() {
+    chapterNumberEl.textContent = '第 5 关';
+    chapterTitleEl.textContent = '争夺食物';
+    chapterDescEl.textContent =
+      `75秒资源竞赛。先找到食物并回巢报信，让10只工蚁运输；红色敌群会同时抢夺。`;
+    statLabel1El.textContent = '我方食物';
+    statLabel2El.textContent = '敌方食物';
+    statLabel3El.textContent = '我方工蚁';
+    statLabel4El.textContent = '剩余时间';
+    legendCardEl.innerHTML = `
+      <h2>图例与规则</h2>
+      <div class="legend"><span class="legend-ant player-ant"></span><span>你：探索、报信、拦截</span></div>
+      <div class="legend"><span class="legend-ant worker-ant"></span><span>我方10只工蚁：沿信息素运输</span></div>
+      <div class="legend"><span style="color:#ef6256;font-size:17px">🐜</span><span>红色敌蚁：会抢走同一批食物</span></div>
+      <div class="legend"><span>🍩</span><span>共享食物：谁先搬走就归谁</span></div>
+      <div class="legend"><span style="font-size:17px">💧</span><span>F蚁酸：减速敌方运输蚁</span></div>
+      <div class="legend"><span style="font-size:17px">🦷</span><span>Space咬击：可赶跑敌方运输蚁</span></div>
+    `;
+    nextLevelBtn.hidden = true;
+    biteBtn.disabled = false;
+    biteBtn.classList.add('ready');
+    acidBtn.disabled = false;
+    acidBtn.classList.add('ready');
+    if (mobileBiteBtn) {
+      mobileBiteBtn.disabled = false;
+      mobileBiteBtn.classList.add('ready');
+    }
+    if (mobileAcidBtn) {
+      mobileAcidBtn.disabled = false;
+      mobileAcidBtn.classList.add('ready');
+    }
+    setRoadmapActive(5);
+  }
+
   function isFinderZoneNode(node) {
     const pad = 9;
     const inTop = node.r <= pad;
