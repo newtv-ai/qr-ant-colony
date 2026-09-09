@@ -246,7 +246,7 @@
 
   function syncChallengeUrl() {
     try {
-      history.replaceState(null, '', challengeUrl(0));
+      history.replaceState(null, '', challengeUrl(friendTargetScore));
     } catch (_) {}
   }
 
