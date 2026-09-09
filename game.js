@@ -1033,6 +1033,19 @@
     });
 
     currentLevel = 1;
+    level2Unlocked = false;
+    level3Unlocked = false;
+    transportSpeedMultiplier = 1;
+    engineeringSpeedMultiplier = 1;
+    rainTimeBonus = 0;
+    nestHpBonus = 0;
+    biteDamageBonus = 0;
+    guardCount = 0;
+    chosenUpgradeLevels = new Set();
+    chosenUpgradeNames = [];
+    lastGuardAttack = 0;
+    guardFlashUntil = 0;
+    upgradeOverlayEl.hidden = true;
     workers = [];
     pheromoneRoutes = [];
     mudSources = [];
@@ -1338,13 +1351,12 @@
     updateUI();
     gameStateBadge.textContent = '第1关完成';
     gameStateBadge.style.color = '#7bf59a';
-    missionTextEl.textContent = '人口达到10只！你已经掌握探索、报信和运输。下一关：搬泥堵住入口，抵御暴雨。';
+    missionTextEl.textContent = '人口达到10只！先选择一次蚁群进化，再进入暴雨关。';
     level2Unlocked = true;
     setRoadmapActive(1);
-    nextLevelBtn.hidden = false;
-    nextLevelBtn.disabled = false;
-    nextLevelBtn.textContent = '进入第2关：暴雨来了 →';
-    showToast('第1关完成！殖民地诞生了 🐜', 4200);
+    nextLevelBtn.hidden = true;
+    showToast('第1关完成！选择蚁群进化方向 🐜', 2600);
+    showUpgradeSelection(1);
   }
 
 
@@ -1392,7 +1404,7 @@
 
     missionTextEl.textContent = '先去寻找棕色泥堆。碰到泥堆后不要自己搬，回绿色蚁穴报信。';
     updateUI(level2StartTime);
-    showToast('第2关开始：找到泥土后回巢，喊10只工蚁来搬！', 3000);
+    showToast(`第2关开始：${level2DurationSeconds()}秒后暴雨！找到泥土后回巢报信。`, 3000);
     requestRender();
   }
 
@@ -1734,7 +1746,7 @@
     if (scanMode || status !== 'playing') return;
     updateMudWorkers(dt);
 
-    if (!level2RainStarted && now - level2StartTime >= LEVEL2_SECONDS * 1000) {
+    if (!level2RainStarted && now - level2StartTime >= level2DurationSeconds() * 1000) {
       startLevelTwoRain();
     }
     updateLevelTwoFlood(now);
@@ -1752,14 +1764,13 @@
     gameStateBadge.textContent = '第2关完成';
     gameStateBadge.style.color = '#7bf59a';
     populationBarEl.style.width = '100%';
-    missionTextEl.textContent = '两个入口都封住了，蚁穴撑过暴雨。下一关将解锁 Space 咬击，对付入侵的大蚂蚁。';
+    missionTextEl.textContent = '两个入口都封住了。选择第二次蚁群进化，决定第三关怎么防守。';
     buffTextEl.textContent = '✓ 防洪成功：施工与限时玩法已掌握';
     level3Unlocked = true;
     setRoadmapActive(2);
-    nextLevelBtn.hidden = false;
-    nextLevelBtn.disabled = false;
-    nextLevelBtn.textContent = '进入第3关：入侵者 →';
-    showToast('第2关完成！蚁穴守住了 🌧️✓', 4200);
+    nextLevelBtn.hidden = true;
+    showToast('第2关完成！选择战斗进化方向 🌧️✓', 2600);
+    showUpgradeSelection(2);
   }
 
   function failLevelTwo() {
@@ -1924,10 +1935,12 @@
     enemySpawnNodes = pickEnemySpawnNodes(3);
     enemySpawnCount = 0;
     enemiesDefeated = 0;
-    nestHp = LEVEL3_NEST_HP;
+    nestHp = level3MaxNestHp();
     lastEnemySpawn = 0;
     lastBiteTime = 0;
     biteEffectUntil = 0;
+    lastGuardAttack = 0;
+    guardFlashUntil = 0;
     level3StartTime = performance.now();
     lastEnemySpawn = level3StartTime;
     scanPauseStarted = 0;
@@ -1939,7 +1952,10 @@
       return;
     }
 
-    missionTextEl.textContent = '敌蚁会直奔绿色蚁穴。站到它们前面，面向敌人按 Space 咬击。';
+    missionTextEl.textContent =
+      guardCount > 0
+        ? `敌蚁正在逼近。你负责前线咬击，${guardCount}只守卫蚁会自动保护蚁穴附近。`
+        : '敌蚁会直奔绿色蚁穴。站到它们前面，面向敌人按 Space 咬击。';
     updateUI(level3StartTime);
     showToast('第3关开始：守住45秒！Space 咬击已解锁 🦷', 3000);
     spawnEnemy();
@@ -2044,15 +2060,84 @@
       return;
     }
 
-    best.enemy.hp -= 1;
+    const biteDamage = 1 + biteDamageBonus;
+    best.enemy.hp -= biteDamage;
     if (best.enemy.hp <= 0) {
       enemies = enemies.filter(e => e !== best.enemy);
       enemiesDefeated += 1;
       showToast(best.enemy.big ? '击退大型敌蚁！' : '击退敌蚁！', 950);
     } else {
-      showToast(`咬中！还剩 ${best.enemy.hp} 下`, 700);
+      showToast(`咬中！伤害 ${1 + biteDamageBonus} · 还剩 ${best.enemy.hp}`, 700);
     }
     requestRender();
+  }
+
+
+  function guardNodes() {
+    if (!guardCount) return [];
+    const seen = new Set([nodeKey(nest.r, nest.c)]);
+    const queue = [{ ...nest }];
+    const result = [];
+
+    while (queue.length && result.length < guardCount) {
+      const cur = queue.shift();
+      for (const n of graph.get(nodeKey(cur.r, cur.c)) || []) {
+        const k = nodeKey(n.r, n.c);
+        if (seen.has(k) || !componentSet.has(k) || isFinderForbiddenNode(n)) continue;
+        seen.add(k);
+        queue.push(n);
+        result.push(n);
+        if (result.length >= guardCount) break;
+      }
+    }
+    return result;
+  }
+
+  function updateGuards(now) {
+    if (!guardCount || !enemies.length || currentLevel !== 3 || status !== 'playing') return;
+    const cooldown = Math.max(300, GUARD_BASE_COOLDOWN / guardCount);
+    if (now - lastGuardAttack < cooldown) return;
+
+    const { step } = boardMetrics();
+    const nestPos = nodeXY(nest);
+    const range = Math.max(42, step * 4.2);
+    let best = null;
+
+    enemies.forEach(enemy => {
+      const p = enemyPosition(enemy);
+      const d = Math.hypot(p.x - nestPos.x, p.y - nestPos.y);
+      if (d <= range && (!best || d < best.d)) best = { enemy, d };
+    });
+
+    if (!best) return;
+    lastGuardAttack = now;
+    guardFlashUntil = now + 140;
+    best.enemy.hp -= 1;
+
+    if (best.enemy.hp <= 0) {
+      enemies = enemies.filter(e => e !== best.enemy);
+      enemiesDefeated += 1;
+      showToast('守卫蚁击退了一只入侵者！', 900);
+    }
+  }
+
+  function drawGuards() {
+    if (!guardCount) return;
+    const nodes = guardNodes();
+    const nestPos = nodeXY(nest);
+
+    nodes.forEach((node, i) => {
+      const p = nodeXY(node);
+      const angle = Math.atan2(nestPos.y - p.y, nestPos.x - p.x);
+      drawAntAt(
+        p.x,
+        p.y,
+        angle,
+        performance.now() < guardFlashUntil ? '#9df7b7' : '#63d99a',
+        .78 + Math.min(.08, i * .02),
+        false
+      );
+    });
   }
 
   function updateLevelThree(now, dt) {
@@ -2065,6 +2150,7 @@
       lastEnemySpawn = now;
     }
 
+    updateGuards(now);
     updateEnemies(dt);
     if (status !== 'playing') return;
 
@@ -2083,7 +2169,7 @@
     gameStateBadge.style.color = '#7bf59a';
     missionTextEl.textContent = '敌蚁退去了。你已经学会近战咬击；下一关将解锁 F 蚁酸，用远程减速来主动狩猎。';
     buffTextEl.textContent = `✓ 防守成功：共击退 ${enemiesDefeated} 只敌蚁`;
-    populationBarEl.style.width = `${Math.max(0, (nestHp / LEVEL3_NEST_HP) * 100)}%`;
+    populationBarEl.style.width = `${Math.max(0, (nestHp / level3MaxNestHp()) * 100)}%`;
     roadmap3El.classList.add('active');
     roadmap4El.classList.remove('locked');
     roadmap4El.classList.add('unlocked');
@@ -2180,8 +2266,15 @@
   function drawPheromones() {
     const { step } = boardMetrics();
     ctx.save();
-    ctx.fillStyle = 'rgba(110, 205, 106, .42)';
     pheromoneRoutes.forEach(route => {
+      const efficiency = route.efficiency || 1;
+      ctx.fillStyle =
+        efficiency >= .85
+          ? 'rgba(91, 214, 115, .48)'
+          : efficiency >= .65
+            ? 'rgba(239, 178, 68, .48)'
+            : 'rgba(232, 100, 76, .48)';
+
       route.path.forEach((node, i) => {
         if (i % 2) return;
         const p = nodeXY(node);
@@ -2395,6 +2488,7 @@
       drawPlayer();
     } else if (currentLevel === 3) {
       drawNest();
+      drawGuards();
       drawEnemies();
       drawPlayer();
       drawBiteEffect();
