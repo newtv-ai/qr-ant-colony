@@ -33,6 +33,10 @@
   const mobileBiteBtn = document.querySelector('[data-mobile-action="bite"]');
   const mobileAcidBtn = document.querySelector('[data-mobile-action="acid"]');
   const scanHealthEl = document.getElementById('scanHealth');
+  const upgradeOverlayEl = document.getElementById('upgradeOverlay');
+  const upgradeTitleEl = document.getElementById('upgradeTitle');
+  const upgradeSubtitleEl = document.getElementById('upgradeSubtitle');
+  const upgradeChoicesEl = document.getElementById('upgradeChoices');
 
   const POPULATION_TARGET = 10;
   const START_POPULATION = 3;
@@ -47,6 +51,7 @@
   const LEVEL3_SECONDS = 45;
   const LEVEL3_NEST_HP = 5;
   const BITE_COOLDOWN = 260;
+  const GUARD_BASE_COOLDOWN = 950;
 
   let qr = null;
   let matrixSize = 0;
@@ -98,6 +103,17 @@
   let nestHp = LEVEL3_NEST_HP;
   let lastBiteTime = 0;
   let biteEffectUntil = 0;
+  let lastGuardAttack = 0;
+  let guardFlashUntil = 0;
+
+  let transportSpeedMultiplier = 1;
+  let engineeringSpeedMultiplier = 1;
+  let rainTimeBonus = 0;
+  let nestHpBonus = 0;
+  let biteDamageBonus = 0;
+  let guardCount = 0;
+  let chosenUpgradeLevels = new Set();
+  let chosenUpgradeNames = [];
 
   let qrPayload = '';
   let qrSafetyMode = false;
@@ -698,6 +714,162 @@
       [arr[i], arr[j]] = [arr[j], arr[i]];
     }
     return arr;
+  }
+
+
+  function routeEfficiency(route, start, goal) {
+    if (!route || route.length < 2) return 1;
+    const shortest = bfsPath(start, goal);
+    if (!shortest || shortest.length < 2) return 1;
+    return Math.max(.35, Math.min(1, shortest.length / route.length));
+  }
+
+  function routeSpeedFactor(efficiency = 1) {
+    return .58 + Math.max(.35, Math.min(1, efficiency)) * .42;
+  }
+
+  function level2DurationSeconds() {
+    return LEVEL2_SECONDS + rainTimeBonus;
+  }
+
+  function level3MaxNestHp() {
+    return LEVEL3_NEST_HP + nestHpBonus;
+  }
+
+  function latestUpgradeName() {
+    return chosenUpgradeNames.length ? chosenUpgradeNames[chosenUpgradeNames.length - 1] : '';
+  }
+
+  function upgradeOptionsForLevel(level) {
+    if (level === 1) {
+      return [
+        {
+          id: 'trail',
+          icon: '🟢',
+          title: '信息素专家',
+          text: '运输蚁沿你留下的路线移动更快。',
+          effect: '后续所有搬运速度 +18%'
+        },
+        {
+          id: 'engineer',
+          icon: '🟤',
+          title: '工程蚁训练',
+          text: '10只工蚁仍都会搬泥，其中一部分接受工程训练。',
+          effect: '第二关施工速度 +25% · 暴雨延后10秒'
+        },
+        {
+          id: 'guard',
+          icon: '🛡️',
+          title: '预备兵蚁',
+          text: '从工蚁中训练一只兼任守卫，第二关仍参与搬运。',
+          effect: '第三关 +1守卫蚁 · 蚁穴生命 +1'
+        }
+      ];
+    }
+
+    if (level === 2) {
+      return [
+        {
+          id: 'bite',
+          icon: '🦷',
+          title: '强壮上颚',
+          text: '你的近战咬击更致命。',
+          effect: '第三关咬击伤害 +1'
+        },
+        {
+          id: 'guards',
+          icon: '🐜',
+          title: '守巢兵蚁',
+          text: '两只蚂蚁接受兵蚁训练，自动驻守蚁穴附近。',
+          effect: '第三关 +2自动守卫'
+        },
+        {
+          id: 'fortify',
+          icon: '🏠',
+          title: '加固蚁穴',
+          text: '用第二关剩下的泥加固巢壁。',
+          effect: '第三关蚁穴生命 +2'
+        }
+      ];
+    }
+
+    return [];
+  }
+
+  function applyUpgrade(level, id) {
+    if (chosenUpgradeLevels.has(level)) return;
+
+    let label = '';
+    if (id === 'trail') {
+      transportSpeedMultiplier *= 1.18;
+      label = '信息素专家';
+    } else if (id === 'engineer') {
+      engineeringSpeedMultiplier *= 1.25;
+      rainTimeBonus += 10;
+      label = '工程蚁训练';
+    } else if (id === 'guard') {
+      guardCount += 1;
+      nestHpBonus += 1;
+      label = '预备兵蚁';
+    } else if (id === 'bite') {
+      biteDamageBonus += 1;
+      label = '强壮上颚';
+    } else if (id === 'guards') {
+      guardCount += 2;
+      label = '守巢兵蚁';
+    } else if (id === 'fortify') {
+      nestHpBonus += 2;
+      label = '加固蚁穴';
+    }
+
+    chosenUpgradeLevels.add(level);
+    if (label) chosenUpgradeNames.push(label);
+    upgradeOverlayEl.hidden = true;
+
+    if (level === 1) {
+      missionTextEl.textContent = `蚁群完成进化：${label}。现在进入暴雨关，10只工蚁会继续为你工作。`;
+      buffTextEl.textContent = `蚁群专精：${label}`;
+      nextLevelBtn.hidden = false;
+      nextLevelBtn.disabled = false;
+      nextLevelBtn.textContent = '进入第2关：暴雨来了 →';
+    } else if (level === 2) {
+      missionTextEl.textContent = `蚁群完成进化：${label}。准备迎战入侵者。`;
+      buffTextEl.textContent = `蚁群专精：${label}`;
+      nextLevelBtn.hidden = false;
+      nextLevelBtn.disabled = false;
+      nextLevelBtn.textContent = '进入第3关：入侵者 →';
+    }
+
+    showToast(`进化完成：${label}`, 2200);
+  }
+
+  function showUpgradeSelection(level) {
+    if (chosenUpgradeLevels.has(level)) return;
+    const options = upgradeOptionsForLevel(level);
+    if (!options.length) return;
+
+    upgradeTitleEl.textContent = level === 1 ? '第一次蚁群进化' : '第二次蚁群进化';
+    upgradeSubtitleEl.textContent =
+      level === 1
+        ? '选一个发展方向。它会直接影响后面的暴雨和入侵关卡。'
+        : '根据前两关的玩法，决定你的殖民地怎样准备战斗。';
+
+    upgradeChoicesEl.innerHTML = '';
+    options.forEach(option => {
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'upgrade-choice';
+      btn.innerHTML = `
+        <span class="icon">${option.icon}</span>
+        <strong>${option.title}</strong>
+        <small>${option.text}</small>
+        <em>${option.effect}</em>
+      `;
+      btn.addEventListener('click', () => applyUpgrade(level, option.id));
+      upgradeChoicesEl.appendChild(btn);
+    });
+
+    upgradeOverlayEl.hidden = false;
   }
 
   function pickLevelTwoEntrances(count) {
