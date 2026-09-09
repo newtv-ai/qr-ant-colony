@@ -4,6 +4,13 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
   <meta name="theme-color" content="#17130f" />
+  <meta name="description" content="把任何二维码变成一张可以玩的蚁群世界：探索、信息素运输、防洪、战斗、争夺资源并带蚁后迁徙。" />
+  <meta property="og:type" content="website" />
+  <meta property="og:title" content="QR Ant Colony · 把任何二维码变成一张可以玩的世界" />
+  <meta property="og:description" content="同一个二维码 + 同一个世界种子 = 同一张挑战地图。你能把蚁群带出去吗？" />
+  <meta name="twitter:card" content="summary" />
+  <meta name="twitter:title" content="QR Ant Colony · 同地图好友挑战" />
+  <meta name="twitter:description" content="输入任意二维码，生成一张可扫描、可生存、可分享的蚁群世界。" />
   <title>QR Ant Colony · 二维码蚁穴</title>
   <link rel="stylesheet" href="style.css" />
 </head>
@@ -27,7 +34,7 @@
 
       <div class="scan-wrap">
         <span id="scanHealth" class="scan-health checking">正在检测游戏画面...</span>
-        <small>实时检测当前游戏画面是否可扫码</small>
+        <small><span id="worldCode">世界 ----</span> · 当前游戏画面实时扫码</small>
       </div>
     </header>
 
