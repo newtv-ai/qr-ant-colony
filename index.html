@@ -22,6 +22,7 @@
         <input id="qrInput" type="text" value="https://github.com/newtv-ai/qr-ant-colony" autocomplete="off" spellcheck="false" aria-label="二维码内容" />
         <button id="generateBtn" class="primary">生成新蚁穴</button>
         <button id="scanBtn" class="secondary">扫码模式</button>
+        <button id="shareBtn" class="secondary share-btn">挑战好友</button>
       </section>
 
       <div class="scan-wrap">
@@ -54,7 +55,9 @@
             <div class="roadmap-step active" id="roadmap1"><span>1</span><div><strong>第一顿饭</strong><small>食物 · 人口</small></div></div>
             <div class="roadmap-step locked" id="roadmap2"><span>2</span><div><strong>暴雨来了</strong><small>泥土 · 堵水</small></div></div>
             <div class="roadmap-step locked" id="roadmap3"><span>3</span><div><strong>入侵者</strong><small>咬击 · 防守</small></div></div>
-            <div class="roadmap-step locked" id="roadmap4"><span>4</span><div><strong>狩猎</strong><small>蚁酸 · 远程</small></div></div>
+            <div class="roadmap-step locked" id="roadmap4"><span>4</span><div><strong>狩猎</strong><small>蚁酸 · 追猎</small></div></div>
+            <div class="roadmap-step locked" id="roadmap5"><span>5</span><div><strong>争夺食物</strong><small>竞速 · 抢夺</small></div></div>
+            <div class="roadmap-step locked" id="roadmap6"><span>6</span><div><strong>大迁徙</strong><small>护送 · 逃生</small></div></div>
           </div>
         </section>
       </aside>
@@ -108,6 +111,21 @@
         </div>
       </aside>
     </section>
+
+    <div id="resultOverlay" class="upgrade-overlay" hidden>
+      <div class="upgrade-panel result-panel" role="dialog" aria-modal="true" aria-labelledby="resultTitle">
+        <div class="upgrade-kicker">COLONY LEGACY</div>
+        <h2 id="resultTitle">迁徙成功</h2>
+        <div class="result-score"><span id="resultGrade">A</span><strong id="resultScore">0</strong></div>
+        <p id="resultSummary">这一代蚁群已经离开旧二维码世界。</p>
+        <div class="result-actions">
+          <button id="shareRunBtn" class="primary">把这张地图挑战发给朋友</button>
+          <button id="replayChallengeBtn" class="secondary">同地图重新挑战</button>
+          <button id="newWorldBtn" class="secondary">迁徙到新世界</button>
+        </div>
+        <small class="result-note">分享链接会固定二维码内容和世界种子，朋友打开后会遇到同一张地图与资源分布。</small>
+      </div>
+    </div>
 
     <div id="upgradeOverlay" class="upgrade-overlay" hidden>
       <div class="upgrade-panel" role="dialog" aria-modal="true" aria-labelledby="upgradeTitle">
