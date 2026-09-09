@@ -766,24 +766,23 @@
 
 
   function setRoadmapActive(level) {
-    [roadmap1El, roadmap2El, roadmap3El, roadmap4El].forEach((el, i) => {
-      if (!el) return;
-      const n = i + 1;
-      el.classList.toggle('active', n === level);
-      if (n === 1) {
-        el.classList.remove('locked');
-        el.classList.add('unlocked');
-      } else if (n === 2 && level2Unlocked) {
-        el.classList.remove('locked');
-        el.classList.add('unlocked');
-      } else if (n === 3 && level3Unlocked) {
-        el.classList.remove('locked');
-        el.classList.add('unlocked');
-      } else {
-        el.classList.add('locked');
-        el.classList.remove('unlocked');
-      }
-    });
+    const unlocked = [
+      true,
+      level2Unlocked,
+      level3Unlocked,
+      level4Unlocked,
+      level5Unlocked,
+      level6Unlocked
+    ];
+
+    [roadmap1El, roadmap2El, roadmap3El, roadmap4El, roadmap5El, roadmap6El]
+      .forEach((el, i) => {
+        if (!el) return;
+        const n = i + 1;
+        el.classList.toggle('active', n === level);
+        el.classList.toggle('unlocked', !!unlocked[i]);
+        el.classList.toggle('locked', !unlocked[i]);
+      });
   }
 
   function setLevelOneUI() {
@@ -883,6 +882,39 @@
       mobileAcidBtn.classList.remove('ready');
     }
     setRoadmapActive(3);
+  }
+
+  function setLevelFourUI() {
+    chapterNumberEl.textContent = '第 4 关';
+    chapterTitleEl.textContent = '狩猎';
+    chapterDescEl.textContent =
+      `60秒内猎杀${LEVEL4_TARGET}只甲虫。Space近身咬击，F喷射蚁酸可远程减速猎物。`;
+    statLabel1El.textContent = '狩猎目标';
+    statLabel2El.textContent = '已猎杀';
+    statLabel3El.textContent = '场上猎物';
+    statLabel4El.textContent = '剩余时间';
+    legendCardEl.innerHTML = `
+      <h2>图例与规则</h2>
+      <div class="legend"><span class="legend-ant player-ant"></span><span>你：黄色猎手蚁</span></div>
+      <div class="legend"><span style="font-size:17px">🪲</span><span>甲虫：会在二维码通道里逃窜</span></div>
+      <div class="legend"><span style="font-size:17px">🦷</span><span>Space / 咬：近距离造成伤害</span></div>
+      <div class="legend"><span style="font-size:17px">💧</span><span>F / 蚁酸：远程减速3.6秒</span></div>
+      <div class="legend"><span class="legend-ant worker-ant"></span><span>高效路线与进化继续影响后续</span></div>
+    `;
+    nextLevelBtn.hidden = true;
+    biteBtn.disabled = false;
+    biteBtn.classList.add('ready');
+    if (mobileBiteBtn) {
+      mobileBiteBtn.disabled = false;
+      mobileBiteBtn.classList.add('ready');
+    }
+    acidBtn.disabled = false;
+    acidBtn.classList.add('ready');
+    if (mobileAcidBtn) {
+      mobileAcidBtn.disabled = false;
+      mobileAcidBtn.classList.add('ready');
+    }
+    setRoadmapActive(4);
   }
 
   function isFinderZoneNode(node) {
