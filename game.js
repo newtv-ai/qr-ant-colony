@@ -2545,6 +2545,371 @@
   }
 
 
+
+  function pickRivalNest() {
+    const candidates = component.filter(n =>
+      !isFinderForbiddenNode(n) &&
+      !nodeTouchesProtected(n) &&
+      Math.hypot(n.r - nest.r, n.c - nest.c) >= Math.max(10, matrixSize * .42)
+    );
+    if (!candidates.length) return randomPlayableNode(nest, Math.max(8, matrixSize * .3));
+    return candidates[Math.floor(seededRandom() * candidates.length)];
+  }
+
+  function startLevelFive() {
+    if (!qr || !component.length) return;
+
+    currentLevel = 5;
+    level5Unlocked = true;
+    status = 'playing';
+    resetStageRng(5);
+    setLevelFiveUI();
+    gameStateBadge.textContent = '第5关 · 争夺';
+    gameStateBadge.style.color = '#ff9b88';
+
+    player = { ...nest, facing: 'right' };
+    enemies = [];
+    prey = [];
+    mudSources = [];
+    entrances = [];
+    mudWorkers = [];
+    flooded = new Set();
+
+    rivalNest = pickRivalNest();
+    const nodes = pickFoodNodes(3);
+    const kinds = [
+      { kind:'donut', name:'甜甜圈' },
+      { kind:'cupcake', name:'杯子蛋糕' },
+      { kind:'cake', name:'草莓蛋糕' }
+    ];
+
+    foods = nodes.map((node, i) => ({
+      ...node,
+      id: `contest-${runSeed}-${i}`,
+      units: 5,
+      maxUnits: 5,
+      kind: kinds[i % kinds.length].kind,
+      foodName: kinds[i % kinds.length].name,
+      level: i + 1,
+      displayCell: chooseFoodDisplayCell(node),
+      discovered: false,
+      routeActivated: false,
+      routePath: null,
+      routeEfficiency: 1
+    }));
+
+    workers = [];
+    pheromoneRoutes = [];
+    carriedDiscovery = null;
+    returnTrail = [];
+    contestStored = 0;
+    rivalStored = 0;
+    rivalWorkers = [];
+    contestWorkerCount = LEVEL2_WORKER_LIMIT;
+    level5StartTime = performance.now();
+    rivalStartAt = level5StartTime + 8000;
+    lastAcidTime = 0;
+    acidEffectUntil = 0;
+    scanPauseStarted = 0;
+
+    missionTextEl.textContent =
+      '先抢在红色敌群前找到食物并回巢报信。8秒后敌群开始搬运。';
+    updateUI(level5StartTime);
+    showToast('第5关开始：8秒后敌群加入争夺！', 2800);
+    requestRender();
+  }
+
+  function handleLevelFivePlayerMove() {
+    if (carriedDiscovery) {
+      const last = returnTrail[returnTrail.length - 1];
+      if (!last || !sameNode(last, player)) returnTrail.push({ r:player.r, c:player.c });
+    }
+
+    const food = !carriedDiscovery
+      ? foods.find(f => f.units > 0 && !f.discovered && playerTouchesFood(f))
+      : null;
+
+    if (food) {
+      food.discovered = true;
+      carriedDiscovery = food;
+      food.routePickupNode = { r:player.r, c:player.c };
+      returnTrail = [{ r:player.r, c:player.c }];
+      missionTextEl.textContent =
+        '发现共享食物！立刻回绿色蚁穴报信，路线越短我方搬得越快。';
+      showToast(`抢先发现${food.foodName}！快回巢报信。`, 1700);
+    }
+
+    if (sameNode(player, nest) && carriedDiscovery) {
+      activateContestRoute(carriedDiscovery, returnTrail);
+      carriedDiscovery = null;
+      returnTrail = [];
+    }
+  }
+
+  function activateContestRoute(food, playerReturnTrail = []) {
+    if (!food || food.routeActivated) return;
+    const goal = food.routePickupNode || food;
+    let route = null;
+
+    if (playerReturnTrail.length >= 2) {
+      route = playerReturnTrail.slice().reverse();
+      if (!sameNode(route[0], nest)) route.unshift({ ...nest });
+    } else {
+      route = bfsPath(nest, goal);
+    }
+
+    if (!route || route.length < 2) return;
+    const efficiency = routeEfficiency(route, nest, goal);
+
+    food.routeActivated = true;
+    food.routePath = route;
+    food.routeEfficiency = efficiency;
+    pheromoneRoutes.push({ foodId:food.id, path:route, efficiency });
+
+    missionTextEl.textContent =
+      `我方运输线建立：效率${Math.round(efficiency * 100)}%。继续找下一处食物或去拦截红色敌蚁。`;
+    showToast('10只工蚁开始抢运食物！', 1800);
+    dispatchContestWorkers();
+  }
+
+  function dispatchContestWorkers() {
+    const active = foods.filter(f => f.routeActivated && f.units > 0);
+    if (!active.length) return;
+
+    while (workers.length < contestWorkerCount) {
+      const food = active[workers.length % active.length];
+      const baseSpeed = .052 + seededRandom() * .014;
+      workers.push({
+        foodId: food.id,
+        path: food.routePath,
+        index: 0,
+        direction: 1,
+        carrying: false,
+        progress: seededRandom() * .52,
+        baseSpeed,
+        speed:
+          baseSpeed *
+          routeSpeedFactor(food.routeEfficiency || 1) *
+          transportSpeedMultiplier
+      });
+    }
+  }
+
+  function updateContestWorkers(dt) {
+    dispatchContestWorkers();
+    const dead = new Set();
+
+    workers.forEach((w, idx) => {
+      const food = foods.find(f => f.id === w.foodId);
+      if (!food || (food.units <= 0 && !w.carrying)) {
+        dead.add(idx);
+        return;
+      }
+
+      w.progress += w.speed * dt;
+      while (w.progress >= 1) {
+        w.progress -= 1;
+        w.index += w.direction;
+
+        if (w.direction > 0 && w.index >= w.path.length - 1) {
+          w.index = w.path.length - 1;
+          if (food.units > 0) {
+            food.units -= 1;
+            w.carrying = true;
+            w.direction = -1;
+          } else {
+            dead.add(idx);
+            return;
+          }
+        } else if (w.direction < 0 && w.index <= 0) {
+          w.index = 0;
+          if (w.carrying) {
+            contestStored += 1;
+            w.carrying = false;
+          }
+
+          if (food.units > 0) {
+            w.direction = 1;
+          } else {
+            dead.add(idx);
+            return;
+          }
+        }
+      }
+    });
+
+    workers = workers.filter((_,i) => !dead.has(i));
+  }
+
+  function chooseRivalFood() {
+    const available = foods.filter(f => f.units > 0);
+    if (!available.length) return null;
+
+    let best = null;
+    available.forEach(food => {
+      const path = bfsPath(rivalNest, food);
+      if (!path) return;
+      const score = path.length - food.units * 1.5;
+      if (!best || score < best.score) best = { food, path, score };
+    });
+    return best;
+  }
+
+  function dispatchRivalWorkers(now) {
+    if (now < rivalStartAt) return;
+
+    while (rivalWorkers.length < 4) {
+      const target = chooseRivalFood();
+      if (!target) return;
+
+      rivalWorkers.push({
+        id: `rival-${runSeed}-${Math.floor(seededRandom()*1e8)}`,
+        foodId: target.food.id,
+        path: target.path,
+        index: 0,
+        progress: seededRandom() * .28,
+        speed: .043 + seededRandom() * .008,
+        hp: 2,
+        maxHp: 2,
+        carrying: false,
+        slowedUntil: 0,
+        phase: 'toFood'
+      });
+    }
+  }
+
+  function updateRivalWorkers(now, dt) {
+    dispatchRivalWorkers(now);
+    const dead = new Set();
+
+    rivalWorkers.forEach((w, idx) => {
+      const slow = now < (w.slowedUntil || 0) ? .35 : 1;
+      w.progress += w.speed * slow * dt;
+
+      while (w.progress >= 1) {
+        w.progress -= 1;
+        w.index += 1;
+        if (w.index < w.path.length - 1) continue;
+
+        if (w.phase === 'toFood') {
+          const food = foods.find(f => f.id === w.foodId);
+          if (!food || food.units <= 0) {
+            dead.add(idx);
+            return;
+          }
+
+          food.units -= 1;
+          w.carrying = true;
+          w.path = w.path.slice().reverse();
+          w.index = 0;
+          w.progress = 0;
+          w.phase = 'toNest';
+          continue;
+        }
+
+        if (w.phase === 'toNest') {
+          rivalStored += 1;
+          w.carrying = false;
+
+          const target = chooseRivalFood();
+          if (!target) {
+            dead.add(idx);
+            return;
+          }
+
+          w.foodId = target.food.id;
+          w.path = target.path;
+          w.index = 0;
+          w.progress = 0;
+          w.phase = 'toFood';
+        }
+      }
+    });
+
+    rivalWorkers = rivalWorkers.filter((_,i) => !dead.has(i));
+  }
+
+  function updateLevelFive(now, dt) {
+    if (scanMode || status !== 'playing') return;
+
+    updateContestWorkers(dt);
+    updateRivalWorkers(now, dt);
+
+    if (contestStored >= LEVEL5_TARGET) {
+      completeLevelFive(now);
+      return;
+    }
+    if (rivalStored >= LEVEL5_TARGET) {
+      failLevelFive('敌群先搬够了8份食物。');
+      return;
+    }
+
+    const elapsed = now - level5StartTime;
+    if (elapsed >= LEVEL5_SECONDS * 1000) {
+      if (contestStored > rivalStored) completeLevelFive(now);
+      else failLevelFive('时间到了，敌群的储备没有落后。');
+      return;
+    }
+
+    updateUI(now);
+  }
+
+  function completeLevelFive(now = performance.now()) {
+    if (status !== 'playing') return;
+    status = 'won';
+    const left = Math.max(0, Math.ceil(LEVEL5_SECONDS - (now - level5StartTime)/1000));
+    awardLevelScore(5, 1300 + contestStored * 100 + left * 10 - rivalStored * 25);
+    level6Unlocked = true;
+
+    gameStateBadge.textContent = '第5关完成';
+    gameStateBadge.style.color = '#7bf59a';
+    missionTextEl.textContent =
+      '资源争夺胜利。但这张二维码世界开始崩坏：最后一关，带蚁后和族群迁徙出去。';
+    buffTextEl.textContent =
+      `✓ 我方${contestStored} : ${rivalStored}敌方 · 当前总分${runScore}`;
+    setRoadmapActive(5);
+    nextLevelBtn.hidden = false;
+    nextLevelBtn.disabled = false;
+    nextLevelBtn.textContent = '进入第6关：大迁徙 →';
+    showToast('第5关完成！准备迁徙整个蚁群。', 3300);
+  }
+
+  function failLevelFive(reason) {
+    if (status !== 'playing') return;
+    status = 'lost';
+    gameStateBadge.textContent = '争夺失败';
+    gameStateBadge.style.color = '#ff7777';
+    missionTextEl.textContent =
+      `${reason} 提示：更早报信、优化路线，也可以直接咬退红色运输蚁。`;
+    nextLevelBtn.hidden = false;
+    nextLevelBtn.disabled = false;
+    nextLevelBtn.textContent = '重试第5关';
+    showToast('食物被抢走了，再试一次！', 2600);
+  }
+
+  function drawRivalNest() {
+    if (!rivalNest) return;
+    const p = nodeXY(rivalNest);
+    const { step } = boardMetrics();
+    ctx.save();
+    ctx.strokeStyle = '#ef6256';
+    ctx.fillStyle = 'rgba(239,98,86,.15)';
+    ctx.lineWidth = Math.max(2, step*.14);
+    ctx.beginPath();
+    ctx.arc(p.x,p.y,Math.max(7,step*.48),0,Math.PI*2);
+    ctx.fill();
+    ctx.stroke();
+    ctx.restore();
+  }
+
+  function drawRivalWorkers() {
+    rivalWorkers.forEach(w => {
+      const p = entityPosition(w);
+      const food = foods.find(f => f.id === w.foodId);
+      drawAntAt(p.x,p.y,p.angle,'#ef6256',.86,w.carrying,food?.kind || 'donut');
+    });
+  }
+
   function updateEnemies(dt) {
     if (scanMode || currentLevel !== 3 || status !== 'playing') return;
     const escaped = new Set();
