@@ -86,7 +86,7 @@ h1 {
 .qr-toolbar {
   min-width: 0;
   display: grid;
-  grid-template-columns: minmax(170px, 1fr) auto auto;
+  grid-template-columns: minmax(170px, 1fr) auto auto auto;
   gap: 7px;
 }
 .qr-toolbar input {
@@ -290,7 +290,7 @@ canvas {
 .roadmap-list {
   min-height: 0;
   display: grid;
-  gap: 7px;
+  gap: 6px;
   align-content: start;
 }
 .roadmap-step {
@@ -299,7 +299,7 @@ canvas {
   grid-template-columns: 26px minmax(0, 1fr);
   align-items: center;
   gap: 9px;
-  padding: 8px 9px;
+  padding: 6px 8px;
   border: 1px solid #352a20;
   border-radius: 10px;
   background: #17120e;
@@ -507,10 +507,11 @@ canvas {
   .brand-mark { display: none; }
   .brand-block h1 { font-size: 14px; white-space: nowrap; }
   .status-badge { font-size: 8px; }
-  .qr-toolbar { grid-template-columns: 1fr auto; }
+  .qr-toolbar { grid-template-columns: 1fr auto auto; }
   .qr-toolbar input { height: 32px; font-size: 10px; }
   .qr-toolbar button { height: 32px; padding: 0 9px; font-size: 9px; }
   #generateBtn { display: none; }
+  .share-btn { display: inline-flex; align-items: center; justify-content: center; }
   .scan-wrap small { display: none; }
   .scan-health { max-width: 125px; font-size: 8px; }
 
@@ -653,4 +654,64 @@ canvas {
   .upgrade-panel h2 { font-size: 18px; }
   .upgrade-choices { grid-template-columns: 1fr; }
   .upgrade-choice { min-height: 0; }
+}
+
+
+.result-panel {
+  width: min(680px, calc(100vw - 32px));
+  text-align: center;
+}
+.result-score {
+  display: flex;
+  justify-content: center;
+  align-items: baseline;
+  gap: 14px;
+  margin: 18px 0 10px;
+}
+.result-score span {
+  width: 64px;
+  height: 64px;
+  display: grid;
+  place-items: center;
+  border-radius: 18px;
+  background: rgba(255,200,74,.13);
+  border: 1px solid rgba(255,200,74,.35);
+  color: var(--gold);
+  font-size: 34px;
+  font-weight: 950;
+}
+.result-score strong {
+  font-size: 38px;
+  line-height: 1;
+}
+.result-actions {
+  display: grid;
+  grid-template-columns: 1.35fr 1fr 1fr;
+  gap: 8px;
+  margin-top: 18px;
+}
+.result-actions button {
+  min-height: 42px;
+  padding: 0 12px;
+  border-radius: 10px;
+  font-size: 11px;
+  font-weight: 900;
+}
+.result-note {
+  display: block;
+  margin-top: 12px;
+  color: var(--muted-2);
+  font-size: 10px;
+  line-height: 1.5;
+}
+.share-btn {
+  border-color: rgba(123,245,154,.28) !important;
+  color: #b9ffca;
+  background: rgba(123,245,154,.08);
+}
+
+@media (max-width: 700px) {
+  .result-actions { grid-template-columns: 1fr; }
+  .result-score span { width: 54px; height: 54px; font-size: 28px; }
+  .result-score strong { font-size: 30px; }
 }
