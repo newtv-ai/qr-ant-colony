@@ -2944,6 +2944,393 @@
     });
   }
 
+
+  function pickMigrationExit() {
+    const dist = distanceMap(nest);
+    const candidates = component.filter(n => {
+      const d = dist.get(nodeKey(n.r,n.c));
+      const nearEdge =
+        n.r <= 3 || n.c <= 3 ||
+        n.r >= matrixSize - 3 || n.c >= matrixSize - 3;
+      return (
+        nearEdge &&
+        Number.isFinite(d) &&
+        d >= Math.max(14, matrixSize * .45) &&
+        !isFinderForbiddenNode(n) &&
+        !nodeTouchesProtected(n)
+      );
+    });
+
+    if (!candidates.length) return randomPlayableNode(nest, Math.max(12,matrixSize*.4));
+    candidates.sort((a,b) =>
+      (dist.get(nodeKey(b.r,b.c)) || 0) - (dist.get(nodeKey(a.r,a.c)) || 0)
+    );
+    const top = candidates.slice(0, Math.min(12,candidates.length));
+    return { ...top[Math.floor(seededRandom()*top.length)] };
+  }
+
+  function startLevelSix() {
+    if (!qr || !component.length) return;
+
+    currentLevel = 6;
+    level6Unlocked = true;
+    status = 'playing';
+    resetStageRng(6);
+    setLevelSixUI();
+    gameStateBadge.textContent = '第6关 · 迁徙';
+    gameStateBadge.style.color = '#d7c2ff';
+
+    foods = [];
+    workers = [];
+    pheromoneRoutes = [];
+    rivalWorkers = [];
+    prey = [];
+    enemies = [];
+    mudSources = [];
+    entrances = [];
+    mudWorkers = [];
+    flooded = new Set();
+
+    player = { ...nest, facing:'right' };
+    migrationExit = pickMigrationExit();
+    migrationTrail = [{ ...nest }];
+    migrationRoute = null;
+    migrationExitFound = false;
+    migrationQueen = null;
+    migrationRaiders = [];
+    migrationFlooded = new Set();
+    migrationFloodFrontier = [];
+    migrationFloodStarted = false;
+    migrationFloodAt = 0;
+    lastMigrationFloodTick = 0;
+    migrationEfficiency = 1;
+    level6StartTime = performance.now();
+    lastAcidTime = 0;
+    acidEffectUntil = 0;
+    scanPauseStarted = 0;
+
+    missionTextEl.textContent =
+      '从绿色旧巢出发，先找到蓝色迁徙出口。你走出去的路线，就是蚁后稍后要走的路线。';
+    updateUI(level6StartTime);
+    showToast(`最终关：${LEVEL6_SCOUT_SECONDS}秒内找到迁徙出口并回巢！`, 3000);
+    requestRender();
+  }
+
+  function handleLevelSixPlayerMove() {
+    if (!migrationExitFound) {
+      const last = migrationTrail[migrationTrail.length-1];
+      if (!last || !sameNode(last,player)) migrationTrail.push({r:player.r,c:player.c});
+
+      if (sameNode(player,migrationExit)) {
+        migrationExitFound = true;
+        migrationRoute = migrationTrail.slice();
+        if (!sameNode(migrationRoute[0],nest)) migrationRoute.unshift({...nest});
+        if (!sameNode(migrationRoute[migrationRoute.length-1],migrationExit)) {
+          migrationRoute.push({...migrationExit});
+        }
+        migrationEfficiency = routeEfficiency(migrationRoute,nest,migrationExit);
+        missionTextEl.textContent =
+          `出口找到了！迁徙路线效率${Math.round(migrationEfficiency*100)}%。现在回绿色旧巢，把蚁后带出来。`;
+        showToast('找到迁徙出口！快回巢带蚁后出发。',2200);
+      }
+      return;
+    }
+
+    if (!migrationQueen && sameNode(player,nest)) {
+      beginMigrationEscort();
+    }
+  }
+
+  function beginMigrationEscort() {
+    if (migrationQueen || !migrationRoute?.length) return;
+
+    migrationQueen = {
+      path:migrationRoute,
+      index:0,
+      progress:0,
+      speed:.034 * routeSpeedFactor(migrationEfficiency) * Math.min(1.12,transportSpeedMultiplier),
+      hp:5,
+      maxHp:5
+    };
+
+    migrationFloodAt = performance.now() + 6000;
+    spawnMigrationRaiders();
+    missionTextEl.textContent =
+      '蚁后出发了！洪水6秒后从旧巢追来。沿迁徙路线护送，优先清掉挡路的红色敌蚁。';
+    showToast('👑 蚁后开始迁徙！6秒后洪水追来！',2400);
+  }
+
+  function spawnMigrationRaiders() {
+    migrationRaiders = [];
+    if (!migrationRoute || migrationRoute.length < 8) return;
+
+    [0.34,0.58,0.80].forEach((ratio,i) => {
+      const targetIndex = Math.min(
+        migrationRoute.length-2,
+        Math.max(2,Math.floor(migrationRoute.length*ratio))
+      );
+      const target = migrationRoute[targetIndex];
+      let start = randomPlayableNode(target,Math.max(8,matrixSize*.22));
+      let path = bfsPath(start,target);
+
+      for (let tries=0;(!path || path.length<4) && tries<8;tries++) {
+        start = randomPlayableNode(target,Math.max(6,matrixSize*.18));
+        path = bfsPath(start,target);
+      }
+      if (!path || path.length<2) return;
+
+      migrationRaiders.push({
+        id:`raider-${runSeed}-${i}`,
+        path,
+        index:0,
+        progress:seededRandom()*.25,
+        speed:(i===2?.030:.036)+seededRandom()*.005,
+        hp:i===2?4:2,
+        maxHp:i===2?4:2,
+        big:i===2,
+        slowedUntil:0,
+        arrived:false,
+        targetNode:{...target},
+        targetIndex
+      });
+    });
+  }
+
+  function updateMigrationRaiders(now,dt) {
+    migrationRaiders.forEach(r => {
+      if (r.arrived) return;
+      const slow = now < (r.slowedUntil||0) ? .35 : 1;
+      r.progress += r.speed * slow * dt;
+
+      while (r.progress>=1) {
+        r.progress-=1;
+        r.index+=1;
+        if (r.index>=r.path.length-1) {
+          r.index=r.path.length-1;
+          r.progress=0;
+          r.arrived=true;
+          r.node={...r.targetNode};
+          break;
+        }
+      }
+    });
+  }
+
+  function migrationQueenNode() {
+    if (!migrationQueen) return nest;
+    return migrationQueen.path[
+      Math.max(0,Math.min(migrationQueen.path.length-1,migrationQueen.index))
+    ];
+  }
+
+  function migrationPathBlocked() {
+    if (!migrationQueen) return false;
+    const nextIndex = Math.min(migrationQueen.path.length-1,migrationQueen.index+1);
+    const next = migrationQueen.path[nextIndex];
+
+    return migrationRaiders.some(r => {
+      if (!r.arrived) return false;
+      const n = r.targetNode || r.node;
+      return Math.hypot(n.r-next.r,n.c-next.c)<=1.25;
+    });
+  }
+
+  function updateMigrationQueen(dt) {
+    if (!migrationQueen || migrationPathBlocked()) return;
+
+    migrationQueen.progress += migrationQueen.speed * dt;
+    while (migrationQueen.progress>=1) {
+      migrationQueen.progress-=1;
+      migrationQueen.index+=1;
+
+      if (migrationQueen.index>=migrationQueen.path.length-1) {
+        migrationQueen.index=migrationQueen.path.length-1;
+        migrationQueen.progress=0;
+        completeLevelSix();
+        return;
+      }
+    }
+  }
+
+  function startMigrationFlood(now) {
+    if (migrationFloodStarted) return;
+    migrationFloodStarted=true;
+    lastMigrationFloodTick=now;
+    const k=nodeKey(nest.r,nest.c);
+    migrationFlooded.add(k);
+    migrationFloodFrontier=[{...nest}];
+    gameStateBadge.textContent='洪水追来了';
+    gameStateBadge.style.color='#5dc8ff';
+    showToast('🌊 洪水从旧巢涌来了！别让它追上蚁后。',2000);
+  }
+
+  function updateMigrationFlood(now) {
+    if (!migrationQueen) return;
+    if (!migrationFloodStarted) {
+      if (now>=migrationFloodAt) startMigrationFlood(now);
+      else return;
+    }
+
+    if (now-lastMigrationFloodTick<MIGRATION_FLOOD_INTERVAL) return;
+    lastMigrationFloodTick=now;
+
+    const nextFrontier=[];
+    let budget=1;
+    while (migrationFloodFrontier.length && budget>0) {
+      const cur=migrationFloodFrontier.shift();
+      for (const n of graph.get(nodeKey(cur.r,cur.c))||[]) {
+        const k=nodeKey(n.r,n.c);
+        if (!componentSet.has(k)||migrationFlooded.has(k)) continue;
+        migrationFlooded.add(k);
+        nextFrontier.push({...n});
+        budget-=1;
+        if (budget<=0) break;
+      }
+    }
+    migrationFloodFrontier.push(...nextFrontier);
+
+    const q=migrationQueenNode();
+    if (migrationFlooded.has(nodeKey(q.r,q.c))) {
+      failLevelSix('洪水追上了蚁后。');
+    }
+  }
+
+  function updateLevelSix(now,dt) {
+    if (scanMode || status!=='playing') return;
+
+    if (!migrationQueen) {
+      const elapsed=now-level6StartTime;
+      if (elapsed>=LEVEL6_SCOUT_SECONDS*1000) {
+        failLevelSix(
+          migrationExitFound
+            ? '找到出口后没能及时回巢。'
+            : '侦察时间结束，还没有找到迁徙出口。'
+        );
+        return;
+      }
+      updateUI(now);
+      return;
+    }
+
+    updateMigrationRaiders(now,dt);
+    updateMigrationQueen(dt);
+    if (status!=='playing') return;
+    updateMigrationFlood(now);
+    if (status!=='playing') return;
+    updateUI(now);
+  }
+
+  function completeLevelSix() {
+    if (status!=='playing') return;
+    status='won';
+    const elapsed=(performance.now()-level6StartTime)/1000;
+    awardLevelScore(
+      6,
+      2200 + migrationEfficiency*1100 + Math.max(0,120-elapsed)*8 + migrationQueen.hp*80
+    );
+
+    gameStateBadge.textContent='迁徙成功';
+    gameStateBadge.style.color='#7bf59a';
+    missionTextEl.textContent =
+      '蚁后和族群已经离开这张二维码。这个世界成为了你的蚁群历史，也可以变成朋友的同图挑战。';
+    buffTextEl.textContent=`最终总分 ${runScore} · ${runGrade()}级`;
+    setRoadmapActive(6);
+    nextLevelBtn.hidden=true;
+    showToast('大迁徙成功！这一代蚁群活下来了 👑',3600);
+    setTimeout(showFinalResult,650);
+  }
+
+  function failLevelSix(reason) {
+    if (status!=='playing') return;
+    status='lost';
+    gameStateBadge.textContent='迁徙失败';
+    gameStateBadge.style.color='#ff7777';
+    missionTextEl.textContent =
+      `${reason} 最终关考验的是探路效率、清路和护送，不只是跑得快。`;
+    nextLevelBtn.hidden=false;
+    nextLevelBtn.disabled=false;
+    nextLevelBtn.textContent='重试第6关';
+    showToast('迁徙失败，再给蚁群一次机会。',2800);
+  }
+
+  function drawMigrationExit() {
+    if (!migrationExit) return;
+    const p=nodeXY(migrationExit);
+    const {step}=boardMetrics();
+    ctx.save();
+    ctx.strokeStyle='#6fd9ff';
+    ctx.fillStyle='rgba(111,217,255,.13)';
+    ctx.lineWidth=Math.max(2,step*.12);
+    ctx.setLineDash([Math.max(3,step*.18),Math.max(2,step*.12)]);
+    ctx.beginPath();
+    ctx.arc(p.x,p.y,Math.max(9,step*.62),0,Math.PI*2);
+    ctx.fill();
+    ctx.stroke();
+    ctx.setLineDash([]);
+    ctx.fillStyle='#dff7ff';
+    ctx.font=`900 ${Math.max(9,step*.34)}px system-ui`;
+    ctx.textAlign='center';
+    ctx.textBaseline='middle';
+    ctx.fillText('EXIT',p.x,p.y+.5);
+    ctx.restore();
+  }
+
+  function drawMigrationRoute() {
+    if (!migrationRoute) return;
+    const {step}=boardMetrics();
+    ctx.save();
+    ctx.fillStyle='rgba(202,172,255,.46)';
+    migrationRoute.forEach((node,i)=>{
+      if (i%2) return;
+      const p=nodeXY(node);
+      ctx.beginPath();
+      ctx.arc(p.x,p.y,Math.max(1.5,step*.09),0,Math.PI*2);
+      ctx.fill();
+    });
+    ctx.restore();
+  }
+
+  function drawMigrationQueen() {
+    if (!migrationQueen) return;
+    const p=entityPosition(migrationQueen);
+    drawAntAt(p.x,p.y,p.angle,'#c9a4ff',1.42,false);
+
+    const {step}=boardMetrics();
+    ctx.save();
+    ctx.fillStyle='#ffe58a';
+    ctx.font=`${Math.max(10,step*.52)}px serif`;
+    ctx.textAlign='center';
+    ctx.textBaseline='middle';
+    ctx.fillText('♛',p.x,p.y-step*.62);
+    ctx.restore();
+  }
+
+  function drawMigrationRaiders() {
+    migrationRaiders.forEach(r=>{
+      const p=entityPosition(r);
+      const slowed=performance.now()<(r.slowedUntil||0);
+      drawAntAt(
+        p.x,p.y,p.angle,
+        slowed?'#8b8fcf':(r.big?'#c43b33':'#ef6256'),
+        r.big?1.18:.92,
+        false
+      );
+    });
+  }
+
+  function drawMigrationFlood() {
+    const {step}=boardMetrics();
+    ctx.save();
+    ctx.fillStyle='rgba(49,174,255,.48)';
+    migrationFlooded.forEach(k=>{
+      const p=nodeXY(parseKey(k));
+      ctx.beginPath();
+      ctx.arc(p.x,p.y,Math.max(2.2,step*.18),0,Math.PI*2);
+      ctx.fill();
+    });
+    ctx.restore();
+  }
+
   function updateEnemies(dt) {
     if (scanMode || currentLevel !== 3 || status !== 'playing') return;
     const escaped = new Set();
