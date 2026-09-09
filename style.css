@@ -564,3 +564,93 @@ canvas {
   .brand-block h1 { font-size: 12px; }
   .board-zone { width: min(100%, calc(100dvh - 148px)); }
 }
+
+
+/* colony evolution choice */
+.upgrade-overlay[hidden] { display: none; }
+.upgrade-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  display: grid;
+  place-items: center;
+  padding: 18px;
+  background: rgba(9, 7, 5, .72);
+  backdrop-filter: blur(6px);
+}
+.upgrade-panel {
+  width: min(760px, calc(100vw - 32px));
+  padding: 22px;
+  border: 1px solid rgba(255, 200, 74, .34);
+  border-radius: 20px;
+  background:
+    radial-gradient(circle at 50% 0%, rgba(255, 200, 74, .10), transparent 16rem),
+    #1c1611;
+  box-shadow: 0 28px 90px rgba(0,0,0,.5);
+}
+.upgrade-kicker {
+  margin-bottom: 5px;
+  color: var(--gold);
+  font-size: 10px;
+  font-weight: 900;
+  letter-spacing: .14em;
+}
+.upgrade-panel h2 {
+  margin: 0;
+  font-size: 22px;
+}
+.upgrade-panel > p {
+  margin: 8px 0 16px;
+  color: var(--muted);
+  font-size: 13px;
+}
+.upgrade-choices {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 10px;
+}
+.upgrade-choice {
+  min-height: 145px;
+  padding: 14px;
+  text-align: left;
+  border: 1px solid #4a3a2b;
+  border-radius: 14px;
+  background: #17110d;
+  color: var(--text);
+  transition: transform .14s ease, border-color .14s ease, background .14s ease;
+}
+.upgrade-choice:hover {
+  transform: translateY(-2px);
+  border-color: rgba(255, 200, 74, .55);
+  background: #21180f;
+}
+.upgrade-choice .icon {
+  display: block;
+  margin-bottom: 8px;
+  font-size: 24px;
+}
+.upgrade-choice strong {
+  display: block;
+  margin-bottom: 6px;
+  font-size: 14px;
+}
+.upgrade-choice small {
+  display: block;
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.5;
+}
+.upgrade-choice em {
+  display: block;
+  margin-top: 8px;
+  color: #dfc68f;
+  font-size: 10px;
+  font-style: normal;
+}
+
+@media (max-width: 700px) {
+  .upgrade-panel { padding: 16px; }
+  .upgrade-panel h2 { font-size: 18px; }
+  .upgrade-choices { grid-template-columns: 1fr; }
+  .upgrade-choice { min-height: 0; }
+}
