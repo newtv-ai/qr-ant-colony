@@ -637,7 +637,8 @@
   function setLevelTwoUI() {
     chapterNumberEl.textContent = '第 2 关';
     chapterTitleEl.textContent = '暴雨来了';
-    chapterDescEl.textContent = '沿用第一关的报信机制：发现泥土后回巢报告，10只工蚁会赶去搬泥并自动封堵入口。';
+    chapterDescEl.textContent =
+      `${level2DurationSeconds()}秒内发现泥土并回巢报信。10只工蚁会沿你的信息素路线赶去搬泥。`;
     statLabel1El.textContent = '封堵入口';
     statLabel2El.textContent = '发现泥堆';
     statLabel3El.textContent = '工蚁数量';
@@ -645,7 +646,7 @@
     legendCardEl.innerHTML = `
       <h2>图例与规则</h2>
       <div class="legend"><span class="legend-ant player-ant"></span><span>你：负责探索和报信</span></div>
-      <div class="legend"><span class="legend-ant worker-ant"></span><span>10只工蚁：负责搬泥</span></div>
+      <div class="legend"><span class="legend-ant worker-ant"></span><span>10只工蚁：全部参与搬泥${engineeringSpeedMultiplier > 1 ? ' · 工程专精' : ''}</span></div>
       <div class="legend"><span style="font-size:17px">🟤</span><span>泥堆：碰到即发现，随后回巢报信</span></div>
       <div class="legend"><span style="color:#5dc8ff;font-size:18px">◎</span><span>入口：每个需要3块泥</span></div>
       <div class="legend"><span class="legend-water"></span><span>积水：倒计时结束后涌入</span></div>
@@ -679,7 +680,8 @@
       <h2>一眼看懂</h2>
       <div class="legend"><span class="legend-ant player-ant"></span><span>你：黄色守卫蚁</span></div>
       <div class="legend"><span style="color:#f05a4f;font-size:17px">🐜</span><span>红色敌蚁：冲向蚁穴</span></div>
-      <div class="legend"><span style="font-size:17px">🦷</span><span>Space / 咬：面前近距离攻击</span></div>
+      <div class="legend"><span style="font-size:17px">🦷</span><span>Space / 咬：伤害 ${1 + biteDamageBonus}</span></div>
+      <div class="legend"><span class="legend-ant worker-ant"></span><span>守卫蚁：${guardCount}只 · 自动保护蚁穴</span></div>
       <div class="legend"><span class="legend-nest"></span><span>蚁穴：生命归零则失败</span></div>
     `;
     nextLevelBtn.hidden = true;
@@ -1078,12 +1080,13 @@
   function updateUI(now = performance.now()) {
     if (currentLevel === 3) {
       const left = Math.max(0, Math.ceil(LEVEL3_SECONDS - (now - level3StartTime) / 1000));
-      populationCountEl.textContent = `${nestHp} / ${LEVEL3_NEST_HP}`;
+      populationCountEl.textContent = `${nestHp} / ${level3MaxNestHp()}`;
       foodScoreEl.textContent = String(enemiesDefeated);
       workerCountEl.textContent = String(enemies.length);
       discoveredCountEl.textContent = `${left}s`;
-      populationBarEl.style.width = `${Math.max(0, (nestHp / LEVEL3_NEST_HP) * 100)}%`;
-      buffTextEl.textContent = '🦷 咬击：面对敌蚁近身再按 Space；大型敌蚁需要多咬几次';
+      populationBarEl.style.width = `${Math.max(0, (nestHp / level3MaxNestHp()) * 100)}%`;
+      buffTextEl.textContent =
+        `🦷 咬击伤害 ${1 + biteDamageBonus} · 守卫蚁 ${guardCount} · 面向敌人近身攻击`;
       return;
     }
 
@@ -1092,14 +1095,14 @@
       populationCountEl.textContent = `${sealed} / ${entrances.length || LEVEL2_ENTRANCE_COUNT}`;
       foodScoreEl.textContent = `${mudDiscovered} / ${mudSources.length || 3}`;
       workerCountEl.textContent = String(LEVEL2_WORKER_LIMIT);
-      const left = Math.max(0, Math.ceil(LEVEL2_SECONDS - (now - level2StartTime) / 1000));
+      const left = Math.max(0, Math.ceil(level2DurationSeconds() - (now - level2StartTime) / 1000));
       discoveredCountEl.textContent = level2RainStarted ? '进水中' : `${left}s`;
       populationBarEl.style.width = `${entrances.length ? (sealed / entrances.length) * 100 : 0}%`;
       buffTextEl.textContent = reportedMudSource
         ? '🟤 已发现泥土：现在回绿色蚁穴报信'
         : mudWorkers.length
-          ? `🐜 ${mudWorkers.length}只工蚁正在搬泥`
-          : '找到泥土 → 回巢报信 → 10只工蚁出发搬运';
+          ? `🐜 ${mudWorkers.length}只工蚁正在搬泥${latestUpgradeName() ? ` · 专精：${latestUpgradeName()}` : ''}`
+          : `找到泥土 → 回巢报信 → 10只工蚁出发搬运${latestUpgradeName() ? ` · 专精：${latestUpgradeName()}` : ''}`;
       return;
     }
 
@@ -1194,19 +1197,25 @@
     if (food.routeActivated) return;
 
     let route = null;
+    const goal = food.routePickupNode || food;
     if (playerReturnTrail.length >= 2) {
       route = playerReturnTrail.slice().reverse();
       if (!sameNode(route[0], nest)) route.unshift({ ...nest });
     } else {
-      route = bfsPath(nest, food.routePickupNode || food);
+      route = bfsPath(nest, goal);
     }
 
     if (!route || route.length < 2) return;
+    const efficiency = routeEfficiency(route, nest, goal);
+    const pct = Math.round(efficiency * 100);
+
     food.routeActivated = true;
     food.routePath = route;
-    pheromoneRoutes.push({ foodId: food.id, path: route });
-    missionTextEl.textContent = '运输线建立！工蚁会沿你刚才走过的路搬食物。继续探索吧。';
-    showToast('信息素路线建立，工蚁出发！');
+    food.routeEfficiency = efficiency;
+    pheromoneRoutes.push({ foodId: food.id, path: route, efficiency });
+    missionTextEl.textContent =
+      `运输线建立！路线效率 ${pct}%。路线越短，工蚁搬运越快。`;
+    showToast(`信息素路线效率 ${pct}% · 工蚁出发！`, 2100);
     dispatchWorkers();
   }
 
@@ -1218,6 +1227,7 @@
       const food = activeFoods[workers.length % activeFoods.length];
       const routeObj = pheromoneRoutes.find(r => r.foodId === food.id);
       if (!routeObj) break;
+      const baseSpeed = .055 + Math.random() * .018;
       workers.push({
         foodId: food.id,
         path: routeObj.path,
@@ -1225,7 +1235,9 @@
         direction: 1,
         carrying: false,
         progress: Math.random() * .6,
-        speed: .055 + Math.random() * .018
+        routeEfficiency: routeObj.efficiency || 1,
+        baseSpeed,
+        speed: baseSpeed * routeSpeedFactor(routeObj.efficiency || 1) * transportSpeedMultiplier
       });
     }
   }
@@ -1417,19 +1429,24 @@
     if (!source || source.activated) return;
 
     let route = null;
+    const goal = source.reportNode || source;
     if (playerReturnTrail.length >= 2) {
       route = playerReturnTrail.slice().reverse();
       if (!sameNode(route[0], nest)) route.unshift({ ...nest });
     } else {
-      route = bfsPath(nest, source.reportNode || source);
+      route = bfsPath(nest, goal);
     }
 
     if (!route || route.length < 2) return;
 
+    const efficiency = routeEfficiency(route, nest, goal);
+    const pct = Math.round(efficiency * 100);
     source.activated = true;
     source.route = route;
-    showToast('🐜 报信成功！10只工蚁出发搬泥。', 2400);
-    missionTextEl.textContent = '工蚁已经赶往泥堆。你继续寻找下一处泥土，让更多泥进入运输线。';
+    source.routeEfficiency = efficiency;
+    showToast(`🐜 报信成功！施工路线效率 ${pct}%`, 2400);
+    missionTextEl.textContent =
+      `10只工蚁已经赶往泥堆。当前施工路线效率 ${pct}%，你继续寻找下一处泥土。`;
     dispatchMudWorkers();
   }
 
@@ -1460,6 +1477,7 @@
     if (!source) return;
 
     while (mudWorkers.length < LEVEL2_WORKER_LIMIT) {
+      const baseSpeed = .05 + Math.random() * .015;
       mudWorkers.push({
         sourceId: source.id,
         entranceId: null,
@@ -1468,7 +1486,12 @@
         direction: 1,
         carrying: false,
         progress: Math.random() * .22,
-        speed: .05 + Math.random() * .015,
+        baseSpeed,
+        speed:
+          baseSpeed *
+          routeSpeedFactor(source.routeEfficiency || 1) *
+          transportSpeedMultiplier *
+          engineeringSpeedMultiplier,
         phase: 'toMud'
       });
     }
@@ -1560,6 +1583,11 @@
 
           w.sourceId = source.id;
           w.entranceId = null;
+          w.speed =
+            (w.baseSpeed || .055) *
+            routeSpeedFactor(source.routeEfficiency || 1) *
+            transportSpeedMultiplier *
+            engineeringSpeedMultiplier;
           w.path = pathBackToMud;
           w.index = 0;
           w.progress = 0;
