@@ -776,6 +776,29 @@
         if (chosen.length >= count) break;
       }
     }
+
+    if (chosen.length < count) {
+      for (const n of candidates) {
+        if (chosen.length >= count) break;
+        if (chosen.some(s => sameNode(s, n))) continue;
+        const cell = chooseFoodDisplayCell(n);
+        if (!cell) continue;
+        const ck = nodeKey(cell.r, cell.c);
+        if (usedCells.has(ck)) continue;
+        chosen.push({
+          ...n,
+          id: `mud-${chosen.length}-${Date.now()}`,
+          displayCell: cell,
+          units: 2,
+          maxUnits: 2,
+          discovered: false,
+          activated: false,
+          route: null
+        });
+        usedCells.add(ck);
+      }
+    }
+
     return chosen;
   }
 
@@ -1176,7 +1199,7 @@
     level2StartTime = performance.now();
     scanPauseStarted = 0;
 
-    if (entrances.length < LEVEL2_ENTRANCE_COUNT || !mudSources.length) {
+    if (entrances.length < LEVEL2_ENTRANCE_COUNT || mudSources.length < 3) {
       status = 'lost';
       missionTextEl.textContent = '这张二维码没有生成足够的可达施工点，请点击「生成新蚁穴」重新生成。';
       showToast('施工点生成失败，请重新生成蚁穴。', 3200);
@@ -1323,11 +1346,25 @@
         }
 
         if (w.phase === 'toEntrance') {
-          const entrance = entrances.find(e => e.id === w.entranceId);
-          if (entrance && !entrance.sealed) {
-            entrance.progress = Math.min(entrance.required, entrance.progress + 1);
-            if (entrance.progress >= entrance.required) sealEntrance(entrance);
+          let entrance = entrances.find(e => e.id === w.entranceId);
+
+          if (!entrance || entrance.sealed) {
+            const currentNode = w.path[w.path.length - 1];
+            const reroute = chooseMudTargetEntrance(currentNode);
+            if (reroute) {
+              w.entranceId = reroute.entrance.id;
+              w.path = reroute.path;
+              w.index = 0;
+              w.progress = 0;
+              continue;
+            }
+
+            dead.add(idx);
+            return;
           }
+
+          entrance.progress = Math.min(entrance.required, entrance.progress + 1);
+          if (entrance.progress >= entrance.required) sealEntrance(entrance);
 
           w.carrying = false;
           checkLevelTwoComplete();
@@ -2091,6 +2128,20 @@
   function drawPlayer() {
     const p = nodeXY(player);
     drawAntAt(p.x, p.y, facingAngle(player.facing), '#ffc83d', 1.18, false);
+
+    if (currentLevel === 2 && reportedMudSource) {
+      const { step } = boardMetrics();
+      const n = nodeXY(nest);
+      ctx.save();
+      ctx.strokeStyle = '#c98243';
+      ctx.lineWidth = Math.max(1, step * .08);
+      ctx.setLineDash([Math.max(2, step * .15), Math.max(2, step * .15)]);
+      ctx.beginPath();
+      ctx.moveTo(p.x, p.y);
+      ctx.lineTo(n.x, n.y);
+      ctx.stroke();
+      ctx.restore();
+    }
 
     if (carriedDiscovery) {
       const { step } = boardMetrics();
