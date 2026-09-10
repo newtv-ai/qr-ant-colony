@@ -1,0 +1,310 @@
+from pathlib import Path
+
+p = Path('game.js')
+s = p.read_text(encoding='utf-8')
+
+
+def rep(old, new, label):
+    global s
+    if old not in s:
+        raise SystemExit(f'missing anchor: {label}')
+    s = s.replace(old, new, 1)
+
+
+rep(
+    """    const speeds = {
+      carrier: .040,
+      crossCarrier: .043,
+      scout: .052,
+      builder: .034,
+      guard: .030,
+      attendant: .038
+    };""",
+    """    const speeds = {
+      carrier: .040,
+      crossCarrier: .043,
+      scout: .052,
+      builder: .034,
+      guard: .030,
+      attendant: .038,
+      outerCarrier: .044,
+      outerScout: .050,
+      outerBuilder: .036
+    };""",
+    'attract speed map',
+)
+
+anchor = """  function makeAttractCrossRoute(a, b) {
+    if (!a || !b || sameNode(a, b)) return null;
+    const aToNest = bfsPath(a, nest);
+    const nestToB = bfsPath(nest, b);
+    if (!aToNest || !nestToB) return null;
+    const path = aToNest.concat(nestToB.slice(1));
+    return path.length >= 4 ? path : null;
+  }
+
+"""
+addition = anchor + """  function pickAttractPeripheralNodes(count) {
+    if (!nest || !component.length) return [];
+    const dist = distanceMap(nest);
+    const values = [...dist.values()];
+    const maxD = values.length ? Math.max(...values) : 1;
+    const cutoff = Math.max(6, maxD * .52);
+    const pool = component.filter(node => {
+      const d = dist.get(nodeKey(node.r, node.c));
+      return Number.isFinite(d) &&
+        d >= cutoff &&
+        !isFinderForbiddenNode(node) &&
+        !nodeTouchesProtected(node);
+    });
+
+    for (let i = pool.length - 1; i > 0; i--) {
+      const j = Math.floor(attractRandom() * (i + 1));
+      [pool[i], pool[j]] = [pool[j], pool[i]];
+    }
+
+    const picked = [];
+    const spacing = Math.max(3, matrixSize * .075);
+    for (const node of pool) {
+      if (picked.every(other => Math.hypot(other.r - node.r, other.c - node.c) >= spacing)) {
+        picked.push({ ...node });
+        if (picked.length >= count) break;
+      }
+    }
+    if (picked.length < count) {
+      for (const node of pool) {
+        if (picked.length >= count) break;
+        if (picked.some(other => sameNode(other, node))) continue;
+        picked.push({ ...node });
+      }
+    }
+    return picked;
+  }
+
+  function makeAttractPeripheralRoute(start, desiredSteps = 14) {
+    if (!start || !nest) return null;
+    const dist = distanceMap(nest);
+    const values = [...dist.values()];
+    const maxD = values.length ? Math.max(...values) : 1;
+    const cutoff = Math.max(5, maxD * .46);
+    const path = [{ ...start }];
+    let current = { ...start };
+    let previousKey = null;
+
+    for (let step = 0; step < desiredSteps; step++) {
+      let choices = (graph.get(nodeKey(current.r, current.c)) || []).filter(node => {
+        const d = dist.get(nodeKey(node.r, node.c));
+        return componentSet.has(nodeKey(node.r, node.c)) &&
+          Number.isFinite(d) && d >= cutoff &&
+          !isFinderForbiddenNode(node) &&
+          !nodeTouchesProtected(node);
+      });
+
+      if (choices.length > 1 && previousKey) {
+        const withoutBacktrack = choices.filter(node => nodeKey(node.r, node.c) !== previousKey);
+        if (withoutBacktrack.length) choices = withoutBacktrack;
+      }
+      if (!choices.length) break;
+
+      const currentD = dist.get(nodeKey(current.r, current.c)) || cutoff;
+      const outer = choices.filter(node => (dist.get(nodeKey(node.r, node.c)) || 0) >= currentD - 1);
+      const pool = outer.length ? outer : choices;
+      const next = pool[Math.floor(attractRandom() * pool.length)];
+      previousKey = nodeKey(current.r, current.c);
+      current = { ...next };
+      path.push(current);
+    }
+
+    return path.length >= 4 ? path : null;
+  }
+
+"""
+rep(anchor, addition, 'peripheral helpers')
+
+rep(
+    """    workerCountEl.textContent = String(attractAnts.filter(a => a.kind === 'scout').length);""",
+    """    workerCountEl.textContent = String(attractAnts.filter(a => a.kind === 'scout' || a.kind === 'outerScout').length);""",
+    'outer scout count',
+)
+
+start = s.index('  function enterAttractMode() {')
+end = s.index('\n  function enterPlayMode() {', start)
+if start < 0 or end < 0:
+    raise SystemExit('missing enterAttractMode block')
+
+new_enter = r'''  function enterAttractMode() {
+    if (!qr || !component.length || !nest) return;
+    appMode = 'attract';
+    status = 'attract';
+    scanMode = false;
+    scanBtn.textContent = '扫码模式';
+    resetAttractRng();
+
+    attractAnts = [];
+    attractResources = [];
+    attractRoutes = [];
+    attractIntruder = null;
+
+    const workNodes = pickAttractNodes(12, false);
+    const nearNodes = pickAttractNodes(3, true);
+    const peripheralNodes = pickAttractPeripheralNodes(14);
+    const foodKinds = ['donut', 'cupcake', 'cake'];
+
+    // Keep only a few true nest-to-food lanes so the centre stays alive without
+    // becoming a traffic jam.
+    workNodes.slice(0, 4).forEach((node, i) => {
+      const path = bfsPath(nest, node);
+      const ant = makeAttractAnt('carrier', path, i);
+      if (!ant) return;
+      attractAnts.push(ant);
+      attractRoutes.push({ path, kind: 'food' });
+      attractResources.push({
+        ...node,
+        kind: 'food',
+        foodKind: foodKinds[i % foodKinds.length],
+        displayCell: chooseFoodDisplayCell(node)
+      });
+    });
+
+    // One crossing lane remains for visual interaction; several long lines no
+    // longer pile up in the core.
+    if (workNodes.length >= 4) {
+      const path = makeAttractCrossRoute(workNodes[0], workNodes[3]);
+      const ant = makeAttractAnt('crossCarrier', path, 1);
+      if (ant) {
+        attractAnts.push(ant);
+        attractRoutes.push({ path, kind: 'food' });
+      }
+    }
+
+    workNodes.slice(4, 6).forEach((node, i) => {
+      const path = bfsPath(nest, node);
+      const ant = makeAttractAnt('builder', path, i);
+      if (!ant) return;
+      attractAnts.push(ant);
+      attractRoutes.push({ path, kind: 'mud' });
+      attractResources.push({ ...node, kind: 'mud' });
+    });
+
+    // Most display traffic now lives in the outer ring. These paths are
+    // constrained away from the nest so the QR perimeter stays visibly active.
+    peripheralNodes.slice(0, 6).forEach((node, i) => {
+      const path = makeAttractPeripheralRoute(node, 13 + (i % 3) * 3);
+      const ant = makeAttractAnt('outerScout', path, i);
+      if (ant) attractAnts.push(ant);
+    });
+
+    peripheralNodes.slice(6, 9).forEach((node, i) => {
+      const path = makeAttractPeripheralRoute(node, 12 + i * 2);
+      const ant = makeAttractAnt('outerCarrier', path, i);
+      if (!ant) return;
+      attractAnts.push(ant);
+      attractRoutes.push({ path, kind: 'outerFood' });
+      const displayCell = chooseFoodDisplayCell(node);
+      if (displayCell) {
+        attractResources.push({
+          ...node,
+          kind: 'food',
+          foodKind: foodKinds[(i + 1) % foodKinds.length],
+          displayCell
+        });
+      }
+    });
+
+    peripheralNodes.slice(9, 11).forEach((node, i) => {
+      const path = makeAttractPeripheralRoute(node, 10 + i * 3);
+      const ant = makeAttractAnt('outerBuilder', path, i);
+      if (!ant) return;
+      attractAnts.push(ant);
+      attractRoutes.push({ path, kind: 'outerMud' });
+      attractResources.push({ ...node, kind: 'mud' });
+    });
+
+    // Only a small core crew remains close to the nest.
+    nearNodes.slice(0, 1).forEach((node, i) => {
+      const path = bfsPath(nest, node);
+      const ant = makeAttractAnt('attendant', path, i);
+      if (ant) attractAnts.push(ant);
+    });
+
+    nearNodes.slice(1, 3).forEach((node, i) => {
+      const path = bfsPath(nest, node);
+      const ant = makeAttractAnt('guard', path, i);
+      if (ant) attractAnts.push(ant);
+    });
+
+    attractNextIntruderAt = performance.now() + 2200 + attractRandom() * 2600;
+    document.body.classList.add('attract-mode');
+    setAttractUI();
+    requestRender();
+  }
+'''
+s = s[:start] + new_enter + s[end:]
+
+rep(
+    """      const pauseChance =
+        ant.kind === 'scout' ? .18 :
+        ant.kind === 'attendant' ? .16 :
+        ant.kind === 'builder' ? .11 :
+        ant.kind === 'guard' ? .10 : .065;""",
+    """      const pauseChance =
+        ant.kind === 'scout' || ant.kind === 'outerScout' ? .18 :
+        ant.kind === 'attendant' ? .16 :
+        ant.kind === 'builder' || ant.kind === 'outerBuilder' ? .11 :
+        ant.kind === 'guard' ? .10 : .065;""",
+    'outer pause behavior',
+)
+
+rep(
+    """      ctx.fillStyle = route.kind === 'mud'
+        ? 'rgba(162, 100, 57, .34)'
+        : routeIndex % 2
+          ? 'rgba(255, 177, 64, .34)'
+          : 'rgba(107, 220, 126, .32)';""",
+    """      ctx.fillStyle = route.kind === 'mud' || route.kind === 'outerMud'
+        ? 'rgba(162, 100, 57, .34)'
+        : route.kind === 'outerFood'
+          ? 'rgba(255, 205, 88, .27)'
+          : routeIndex % 2
+            ? 'rgba(255, 177, 64, .34)'
+            : 'rgba(107, 220, 126, .32)';""",
+    'outer route color',
+)
+
+rep(
+    """      } else if (ant.kind === 'builder') {
+        drawAntAt(p.x, p.y, p.angle, '#a9663c', .84, returning, 'mud');
+      } else if (ant.kind === 'guard') {
+        drawAntAt(p.x, p.y, p.angle, '#63d99a', .96, false);
+      } else if (ant.kind === 'attendant') {
+        drawAntAt(p.x, p.y, p.angle, '#e6b36a', .68, false);
+      } else {
+        drawAntAt(p.x, p.y, p.angle, '#ffd35a', .72, false);
+      }""",
+    """      } else if (ant.kind === 'builder') {
+        drawAntAt(p.x, p.y, p.angle, '#a9663c', .84, returning, 'mud');
+      } else if (ant.kind === 'outerCarrier') {
+        const kinds = ['donut', 'cupcake', 'cake'];
+        drawAntAt(
+          p.x, p.y, p.angle,
+          '#f2a94d',
+          .75,
+          returning,
+          kinds[ant.variant % kinds.length]
+        );
+      } else if (ant.kind === 'outerBuilder') {
+        drawAntAt(p.x, p.y, p.angle, '#9e6844', .76, returning, 'mud');
+      } else if (ant.kind === 'outerScout') {
+        drawAntAt(p.x, p.y, p.angle, '#f6cf5f', .70, false);
+      } else if (ant.kind === 'guard') {
+        drawAntAt(p.x, p.y, p.angle, '#63d99a', .96, false);
+      } else if (ant.kind === 'attendant') {
+        drawAntAt(p.x, p.y, p.angle, '#e6b36a', .68, false);
+      } else {
+        drawAntAt(p.x, p.y, p.angle, '#ffd35a', .72, false);
+      }""",
+    'draw outer ants',
+)
+
+p.write_text(s, encoding='utf-8')
+print('patched game.js')
