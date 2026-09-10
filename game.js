@@ -1363,7 +1363,10 @@
       scout: .052,
       builder: .034,
       guard: .030,
-      attendant: .038
+      attendant: .038,
+      outerCarrier: .044,
+      outerScout: .050,
+      outerBuilder: .036
     };
     const direction = attractRandom() < .5 ? 1 : -1;
     const maxIndex = path.length - 1;
@@ -1391,6 +1394,80 @@
     const nestToB = bfsPath(nest, b);
     if (!aToNest || !nestToB) return null;
     const path = aToNest.concat(nestToB.slice(1));
+    return path.length >= 4 ? path : null;
+  }
+
+  function pickAttractPeripheralNodes(count) {
+    if (!nest || !component.length) return [];
+    const dist = distanceMap(nest);
+    const values = [...dist.values()];
+    const maxD = values.length ? Math.max(...values) : 1;
+    const cutoff = Math.max(6, maxD * .52);
+    const pool = component.filter(node => {
+      const d = dist.get(nodeKey(node.r, node.c));
+      return Number.isFinite(d) &&
+        d >= cutoff &&
+        !isFinderForbiddenNode(node) &&
+        !nodeTouchesProtected(node);
+    });
+
+    for (let i = pool.length - 1; i > 0; i--) {
+      const j = Math.floor(attractRandom() * (i + 1));
+      [pool[i], pool[j]] = [pool[j], pool[i]];
+    }
+
+    const picked = [];
+    const spacing = Math.max(3, matrixSize * .075);
+    for (const node of pool) {
+      if (picked.every(other => Math.hypot(other.r - node.r, other.c - node.c) >= spacing)) {
+        picked.push({ ...node });
+        if (picked.length >= count) break;
+      }
+    }
+    if (picked.length < count) {
+      for (const node of pool) {
+        if (picked.length >= count) break;
+        if (picked.some(other => sameNode(other, node))) continue;
+        picked.push({ ...node });
+      }
+    }
+    return picked;
+  }
+
+  function makeAttractPeripheralRoute(start, desiredSteps = 14) {
+    if (!start || !nest) return null;
+    const dist = distanceMap(nest);
+    const values = [...dist.values()];
+    const maxD = values.length ? Math.max(...values) : 1;
+    const cutoff = Math.max(5, maxD * .46);
+    const path = [{ ...start }];
+    let current = { ...start };
+    let previousKey = null;
+
+    for (let step = 0; step < desiredSteps; step++) {
+      let choices = (graph.get(nodeKey(current.r, current.c)) || []).filter(node => {
+        const d = dist.get(nodeKey(node.r, node.c));
+        return componentSet.has(nodeKey(node.r, node.c)) &&
+          Number.isFinite(d) && d >= cutoff &&
+          !isFinderForbiddenNode(node) &&
+          !nodeTouchesProtected(node);
+      });
+
+      if (choices.length > 1 && previousKey) {
+        const withoutBacktrack = choices.filter(node => nodeKey(node.r, node.c) !== previousKey);
+        if (withoutBacktrack.length) choices = withoutBacktrack;
+      }
+      if (!choices.length) break;
+
+      const currentD = dist.get(nodeKey(current.r, current.c)) || cutoff;
+      const outer = choices.filter(node => (dist.get(nodeKey(node.r, node.c)) || 0) >= currentD - 1);
+      const pool = outer.length ? outer : choices;
+      const next = pool[Math.floor(attractRandom() * pool.length)];
+      previousKey = nodeKey(current.r, current.c);
+      current = { ...next };
+      path.push(current);
+    }
+
     return path.length >= 4 ? path : null;
   }
 
@@ -1430,7 +1507,7 @@
     statLabel4El.textContent = '守卫蚁';
     populationCountEl.textContent = String(attractAnts.length);
     foodScoreEl.textContent = String(attractRoutes.length);
-    workerCountEl.textContent = String(attractAnts.filter(a => a.kind === 'scout').length);
+    workerCountEl.textContent = String(attractAnts.filter(a => a.kind === 'scout' || a.kind === 'outerScout').length);
     discoveredCountEl.textContent = String(attractAnts.filter(a => a.kind === 'guard').length);
     populationBarEl.style.width = '92%';
     missionTextEl.textContent = '蚁群正在自动搬运、巡逻和筑巢。点击下方「开始探索」后，你会接管黄色侦察蚁。';
@@ -1476,13 +1553,14 @@
     attractRoutes = [];
     attractIntruder = null;
 
-    const workNodes = pickAttractNodes(16, false);
-    const nearNodes = pickAttractNodes(6, true);
+    const workNodes = pickAttractNodes(12, false);
+    const nearNodes = pickAttractNodes(3, true);
+    const peripheralNodes = pickAttractPeripheralNodes(14);
     const foodKinds = ['donut', 'cupcake', 'cake'];
 
-    // Main hauling lanes. Start positions are deliberately staggered so the
-    // page looks busy immediately instead of waiting for ants to leave the nest.
-    workNodes.slice(0, 6).forEach((node, i) => {
+    // Keep only a few true nest-to-food lanes so the centre stays alive without
+    // becoming a traffic jam.
+    workNodes.slice(0, 4).forEach((node, i) => {
       const path = bfsPath(nest, node);
       const ant = makeAttractAnt('carrier', path, i);
       if (!ant) return;
@@ -1496,23 +1574,18 @@
       });
     });
 
-    // Two cross-colony hauling lanes deliberately pass through the nest and
-    // continue to another outer district. This creates visible crossing traffic.
-    [[0, 5], [1, 4]].forEach(([aIndex, bIndex], i) => {
-      const path = makeAttractCrossRoute(workNodes[aIndex], workNodes[bIndex]);
-      const ant = makeAttractAnt('crossCarrier', path, i + 1);
-      if (!ant) return;
-      attractAnts.push(ant);
-      attractRoutes.push({ path, kind: 'food' });
-    });
+    // One crossing lane remains for visual interaction; several long lines no
+    // longer pile up in the core.
+    if (workNodes.length >= 4) {
+      const path = makeAttractCrossRoute(workNodes[0], workNodes[3]);
+      const ant = makeAttractAnt('crossCarrier', path, 1);
+      if (ant) {
+        attractAnts.push(ant);
+        attractRoutes.push({ path, kind: 'food' });
+      }
+    }
 
-    workNodes.slice(6, 10).forEach((node, i) => {
-      const path = bfsPath(nest, node);
-      const ant = makeAttractAnt('scout', path, i);
-      if (ant) attractAnts.push(ant);
-    });
-
-    workNodes.slice(10, 13).forEach((node, i) => {
+    workNodes.slice(4, 6).forEach((node, i) => {
       const path = bfsPath(nest, node);
       const ant = makeAttractAnt('builder', path, i);
       if (!ant) return;
@@ -1521,15 +1594,48 @@
       attractResources.push({ ...node, kind: 'mud' });
     });
 
-    // Short nest shuttles keep the core visibly alive: ants repeatedly emerge,
-    // pause, turn and disappear back into the central traffic.
-    nearNodes.slice(0, 4).forEach((node, i) => {
+    // Most display traffic now lives in the outer ring. These paths are
+    // constrained away from the nest so the QR perimeter stays visibly active.
+    peripheralNodes.slice(0, 6).forEach((node, i) => {
+      const path = makeAttractPeripheralRoute(node, 13 + (i % 3) * 3);
+      const ant = makeAttractAnt('outerScout', path, i);
+      if (ant) attractAnts.push(ant);
+    });
+
+    peripheralNodes.slice(6, 9).forEach((node, i) => {
+      const path = makeAttractPeripheralRoute(node, 12 + i * 2);
+      const ant = makeAttractAnt('outerCarrier', path, i);
+      if (!ant) return;
+      attractAnts.push(ant);
+      attractRoutes.push({ path, kind: 'outerFood' });
+      const displayCell = chooseFoodDisplayCell(node);
+      if (displayCell) {
+        attractResources.push({
+          ...node,
+          kind: 'food',
+          foodKind: foodKinds[(i + 1) % foodKinds.length],
+          displayCell
+        });
+      }
+    });
+
+    peripheralNodes.slice(9, 11).forEach((node, i) => {
+      const path = makeAttractPeripheralRoute(node, 10 + i * 3);
+      const ant = makeAttractAnt('outerBuilder', path, i);
+      if (!ant) return;
+      attractAnts.push(ant);
+      attractRoutes.push({ path, kind: 'outerMud' });
+      attractResources.push({ ...node, kind: 'mud' });
+    });
+
+    // Only a small core crew remains close to the nest.
+    nearNodes.slice(0, 1).forEach((node, i) => {
       const path = bfsPath(nest, node);
       const ant = makeAttractAnt('attendant', path, i);
       if (ant) attractAnts.push(ant);
     });
 
-    nearNodes.slice(3, 6).forEach((node, i) => {
+    nearNodes.slice(1, 3).forEach((node, i) => {
       const path = bfsPath(nest, node);
       const ant = makeAttractAnt('guard', path, i);
       if (ant) attractAnts.push(ant);
@@ -1584,9 +1690,9 @@
       // Small thinking/antenna pauses happen at ordinary junctions too, not
       // only at route ends. Scouts and nest attendants pause more often.
       const pauseChance =
-        ant.kind === 'scout' ? .18 :
+        ant.kind === 'scout' || ant.kind === 'outerScout' ? .18 :
         ant.kind === 'attendant' ? .16 :
-        ant.kind === 'builder' ? .11 :
+        ant.kind === 'builder' || ant.kind === 'outerBuilder' ? .11 :
         ant.kind === 'guard' ? .10 : .065;
 
       if (
@@ -1702,11 +1808,13 @@
     const { step } = boardMetrics();
     ctx.save();
     attractRoutes.forEach((route, routeIndex) => {
-      ctx.fillStyle = route.kind === 'mud'
+      ctx.fillStyle = route.kind === 'mud' || route.kind === 'outerMud'
         ? 'rgba(162, 100, 57, .34)'
-        : routeIndex % 2
-          ? 'rgba(255, 177, 64, .34)'
-          : 'rgba(107, 220, 126, .32)';
+        : route.kind === 'outerFood'
+          ? 'rgba(255, 205, 88, .27)'
+          : routeIndex % 2
+            ? 'rgba(255, 177, 64, .34)'
+            : 'rgba(107, 220, 126, .32)';
       route.path.forEach((node, i) => {
         if (i % 3) return;
         const p = nodeXY(node);
@@ -1818,6 +1926,19 @@
         );
       } else if (ant.kind === 'builder') {
         drawAntAt(p.x, p.y, p.angle, '#a9663c', .84, returning, 'mud');
+      } else if (ant.kind === 'outerCarrier') {
+        const kinds = ['donut', 'cupcake', 'cake'];
+        drawAntAt(
+          p.x, p.y, p.angle,
+          '#f2a94d',
+          .75,
+          returning,
+          kinds[ant.variant % kinds.length]
+        );
+      } else if (ant.kind === 'outerBuilder') {
+        drawAntAt(p.x, p.y, p.angle, '#9e6844', .76, returning, 'mud');
+      } else if (ant.kind === 'outerScout') {
+        drawAntAt(p.x, p.y, p.angle, '#f6cf5f', .70, false);
       } else if (ant.kind === 'guard') {
         drawAntAt(p.x, p.y, p.angle, '#63d99a', .96, false);
       } else if (ant.kind === 'attendant') {
