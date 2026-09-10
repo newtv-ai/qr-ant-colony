@@ -49,8 +49,8 @@
   const upgradeTitleEl = document.getElementById('upgradeTitle');
   const upgradeSubtitleEl = document.getElementById('upgradeSubtitle');
   const upgradeChoicesEl = document.getElementById('upgradeChoices');
-  const attractOverlayEl = document.getElementById('attractOverlay');
   const startGameBtn = document.getElementById('startGameBtn');
+  const mobileStartGameBtn = document.getElementById('mobileStartGameBtn');
 
   const POPULATION_TARGET = 10;
   const START_POPULATION = 3;
@@ -814,6 +814,9 @@
   }
 
   function setLevelOneUI() {
+    legendCardEl.classList.remove('attract-legend');
+    if (startGameBtn) startGameBtn.hidden = true;
+    if (mobileStartGameBtn) mobileStartGameBtn.hidden = true;
     chapterNumberEl.textContent = '第 1 关';
     chapterTitleEl.textContent = '第一顿饭';
     chapterDescEl.textContent = '不限时间。找到食物并带回气味，让工蚁开始运输，把蚁群人口养到 10。';
@@ -1339,6 +1342,16 @@
         if (picked.length >= count) break;
       }
     }
+
+    // Density matters more than perfect spacing in attract mode. If the QR is
+    // compact, fill the remaining slots with unique reachable nodes.
+    if (picked.length < count) {
+      for (const node of pool) {
+        if (picked.length >= count) break;
+        if (picked.some(other => sameNode(other, node))) continue;
+        picked.push({ ...node });
+      }
+    }
     return picked;
   }
 
@@ -1346,20 +1359,63 @@
     if (!path || path.length < 2) return null;
     const speeds = {
       carrier: .040,
+      crossCarrier: .043,
       scout: .052,
       builder: .034,
-      guard: .030
+      guard: .030,
+      attendant: .038
     };
+    const direction = attractRandom() < .5 ? 1 : -1;
+    const maxIndex = path.length - 1;
+    const index = direction > 0
+      ? Math.min(maxIndex - 1, Math.floor(attractRandom() * maxIndex))
+      : Math.max(1, Math.ceil(attractRandom() * maxIndex));
+
     return {
       kind,
       path,
-      index: 0,
-      progress: attractRandom() * .82,
-      direction: 1,
-      speed: (speeds[kind] || .04) * (.9 + attractRandom() * .2),
-      pause: attractRandom() * 12,
-      variant
+      index,
+      progress: attractRandom() * .92,
+      direction,
+      baseSpeed: speeds[kind] || .04,
+      speed: (speeds[kind] || .04) * (.90 + attractRandom() * .22),
+      pause: attractRandom() * 16,
+      variant,
+      wobble: attractRandom() * Math.PI * 2
     };
+  }
+
+  function makeAttractCrossRoute(a, b) {
+    if (!a || !b || sameNode(a, b)) return null;
+    const aToNest = bfsPath(a, nest);
+    const nestToB = bfsPath(nest, b);
+    if (!aToNest || !nestToB) return null;
+    const path = aToNest.concat(nestToB.slice(1));
+    return path.length >= 4 ? path : null;
+  }
+
+  function repathAttractScout(ant, fromNode) {
+    if (!ant || ant.kind !== 'scout' || !fromNode) return false;
+    const candidates = component.filter(node =>
+      !sameNode(node, fromNode) &&
+      !isFinderForbiddenNode(node) &&
+      !nodeTouchesProtected(node) &&
+      Math.hypot(node.r - fromNode.r, node.c - fromNode.c) >= Math.max(4, matrixSize * .16)
+    );
+    if (!candidates.length) return false;
+
+    for (let tries = 0; tries < Math.min(10, candidates.length); tries++) {
+      const target = candidates[Math.floor(attractRandom() * candidates.length)];
+      const path = bfsPath(fromNode, target);
+      if (!path || path.length < 4) continue;
+      ant.path = path;
+      ant.index = 0;
+      ant.progress = 0;
+      ant.direction = 1;
+      ant.pause = 5 + attractRandom() * 12;
+      return true;
+    }
+    return false;
   }
 
   function setAttractUI() {
@@ -1376,18 +1432,27 @@
     foodScoreEl.textContent = String(attractRoutes.length);
     workerCountEl.textContent = String(attractAnts.filter(a => a.kind === 'scout').length);
     discoveredCountEl.textContent = String(attractAnts.filter(a => a.kind === 'guard').length);
-    populationBarEl.style.width = '86%';
-    missionTextEl.textContent = '先看看这座二维码蚁穴如何自己工作。准备好后点击画面中的「开始探索」。';
-    buffTextEl.textContent = '展示中的蚂蚁不会改变正式关卡；开始后会从第1关完整重置。';
+    populationBarEl.style.width = '92%';
+    missionTextEl.textContent = '蚁群正在自动搬运、巡逻和筑巢。点击下方「开始探索」后，你会接管黄色侦察蚁。';
+    buffTextEl.textContent = '展示态与正式关卡完全隔离；开始游戏后从第1关完整重置。';
+    legendCardEl.classList.add('attract-legend');
     legendCardEl.innerHTML = `
       <h2>蚁群正在做什么</h2>
-      <div class="legend"><span class="legend-ant worker-ant"></span><span>搬运蚁：把食物送回巢穴</span></div>
-      <div class="legend"><span style="color:#ffd766;font-size:17px">🐜</span><span>侦察蚁：探索外围通道</span></div>
-      <div class="legend"><span style="color:#9a633e;font-size:17px">🐜</span><span>筑巢蚁：搬运泥土整理巢穴</span></div>
-      <div class="legend"><span style="color:#63d99a;font-size:17px">🐜</span><span>守卫蚁：巡逻核心通道</span></div>
-      <div class="legend"><span>🍰</span><span>食物点：运输线持续往返</span></div>
-      <div class="legend"><span class="legend-nest"></span><span>绿色核心：蚁穴中心</span></div>
+      <div class="legend"><span class="legend-icon-wrap"><span class="legend-ant worker-ant"></span></span><span>搬运蚁：把食物送回巢穴</span></div>
+      <div class="legend"><span class="legend-icon-wrap"><span class="legend-ant scout-ant"></span></span><span>侦察蚁：探索外围通道</span></div>
+      <div class="legend"><span class="legend-icon-wrap"><span class="legend-ant builder-ant"></span></span><span>筑巢蚁：搬运泥土整理巢穴</span></div>
+      <div class="legend"><span class="legend-icon-wrap"><span class="legend-ant guard-ant"></span></span><span>守卫蚁：巡逻核心通道</span></div>
+      <div class="legend"><span class="legend-icon-wrap">🍰</span><span>食物点：多条运输线交叉往返</span></div>
+      <div class="legend"><span class="legend-icon-wrap"><span class="legend-nest"></span></span><span>绿色核心：蚂蚁持续进出巢穴</span></div>
     `;
+    if (startGameBtn) {
+      startGameBtn.hidden = false;
+      startGameBtn.textContent = friendTargetScore > 0 ? '开始好友挑战' : '开始探索';
+    }
+    if (mobileStartGameBtn) {
+      mobileStartGameBtn.hidden = false;
+      mobileStartGameBtn.textContent = friendTargetScore > 0 ? '开始好友挑战' : '开始探索';
+    }
     nextLevelBtn.hidden = true;
     biteBtn.disabled = true;
     acidBtn.disabled = true;
@@ -1411,11 +1476,13 @@
     attractRoutes = [];
     attractIntruder = null;
 
-    const workNodes = pickAttractNodes(9, false);
-    const guardNodes = pickAttractNodes(3, true);
+    const workNodes = pickAttractNodes(16, false);
+    const nearNodes = pickAttractNodes(6, true);
     const foodKinds = ['donut', 'cupcake', 'cake'];
 
-    workNodes.slice(0, 4).forEach((node, i) => {
+    // Main hauling lanes. Start positions are deliberately staggered so the
+    // page looks busy immediately instead of waiting for ants to leave the nest.
+    workNodes.slice(0, 6).forEach((node, i) => {
       const path = bfsPath(nest, node);
       const ant = makeAttractAnt('carrier', path, i);
       if (!ant) return;
@@ -1429,13 +1496,23 @@
       });
     });
 
-    workNodes.slice(4, 7).forEach((node, i) => {
+    // Two cross-colony hauling lanes deliberately pass through the nest and
+    // continue to another outer district. This creates visible crossing traffic.
+    [[0, 5], [1, 4]].forEach(([aIndex, bIndex], i) => {
+      const path = makeAttractCrossRoute(workNodes[aIndex], workNodes[bIndex]);
+      const ant = makeAttractAnt('crossCarrier', path, i + 1);
+      if (!ant) return;
+      attractAnts.push(ant);
+      attractRoutes.push({ path, kind: 'food' });
+    });
+
+    workNodes.slice(6, 10).forEach((node, i) => {
       const path = bfsPath(nest, node);
       const ant = makeAttractAnt('scout', path, i);
       if (ant) attractAnts.push(ant);
     });
 
-    workNodes.slice(7, 9).forEach((node, i) => {
+    workNodes.slice(10, 13).forEach((node, i) => {
       const path = bfsPath(nest, node);
       const ant = makeAttractAnt('builder', path, i);
       if (!ant) return;
@@ -1444,17 +1521,21 @@
       attractResources.push({ ...node, kind: 'mud' });
     });
 
-    guardNodes.forEach((node, i) => {
+    // Short nest shuttles keep the core visibly alive: ants repeatedly emerge,
+    // pause, turn and disappear back into the central traffic.
+    nearNodes.slice(0, 4).forEach((node, i) => {
+      const path = bfsPath(nest, node);
+      const ant = makeAttractAnt('attendant', path, i);
+      if (ant) attractAnts.push(ant);
+    });
+
+    nearNodes.slice(3, 6).forEach((node, i) => {
       const path = bfsPath(nest, node);
       const ant = makeAttractAnt('guard', path, i);
       if (ant) attractAnts.push(ant);
     });
 
     attractNextIntruderAt = performance.now() + 2200 + attractRandom() * 2600;
-    if (attractOverlayEl) attractOverlayEl.hidden = false;
-    if (startGameBtn) {
-      startGameBtn.textContent = friendTargetScore > 0 ? '开始好友挑战' : '开始探索';
-    }
     document.body.classList.add('attract-mode');
     setAttractUI();
     requestRender();
@@ -1468,7 +1549,8 @@
 
     appMode = 'playing';
     document.body.classList.remove('attract-mode');
-    if (attractOverlayEl) attractOverlayEl.hidden = true;
+    if (startGameBtn) startGameBtn.hidden = true;
+    if (mobileStartGameBtn) mobileStartGameBtn.hidden = true;
     attractAnts = [];
     attractResources = [];
     attractRoutes = [];
@@ -1490,24 +1572,61 @@
       return;
     }
 
+    ant.wobble += dt * .035;
+    const drift = .96 + Math.sin(ant.wobble) * .045;
+    ant.speed = ant.baseSpeed * drift;
     ant.progress += ant.speed * dt;
+
     while (ant.progress >= 1) {
       ant.progress -= 1;
       ant.index += ant.direction;
 
+      // Small thinking/antenna pauses happen at ordinary junctions too, not
+      // only at route ends. Scouts and nest attendants pause more often.
+      const pauseChance =
+        ant.kind === 'scout' ? .18 :
+        ant.kind === 'attendant' ? .16 :
+        ant.kind === 'builder' ? .11 :
+        ant.kind === 'guard' ? .10 : .065;
+
+      if (
+        ant.index > 0 &&
+        ant.index < ant.path.length - 1 &&
+        attractRandom() < pauseChance
+      ) {
+        ant.pause = 2 + attractRandom() * 11;
+        break;
+      }
+
       if (ant.index >= ant.path.length - 1) {
         ant.index = ant.path.length - 1;
-        ant.direction = -1;
         ant.progress = 0;
-        ant.pause = 5 + attractRandom() * 18;
+
+        // Scouts do not ping-pong forever: at the end of a route they choose a
+        // new reachable district, which creates much more natural turning.
+        if (ant.kind === 'scout' && repathAttractScout(ant, ant.path[ant.path.length - 1])) {
+          break;
+        }
+
+        ant.direction = -1;
+        ant.pause = ant.kind === 'attendant'
+          ? 7 + attractRandom() * 20
+          : 4 + attractRandom() * 17;
         break;
       }
 
       if (ant.index <= 0) {
         ant.index = 0;
-        ant.direction = 1;
         ant.progress = 0;
-        ant.pause = 4 + attractRandom() * 14;
+
+        if (ant.kind === 'scout' && repathAttractScout(ant, ant.path[0])) {
+          break;
+        }
+
+        ant.direction = 1;
+        ant.pause = ant.kind === 'attendant'
+          ? 6 + attractRandom() * 18
+          : 3 + attractRandom() * 15;
         break;
       }
     }
@@ -1678,13 +1797,31 @@
     attractAnts.forEach(ant => {
       const p = workerPosition(ant);
       const returning = ant.direction === -1;
+
       if (ant.kind === 'carrier') {
         const kinds = ['donut', 'cupcake', 'cake'];
-        drawAntAt(p.x, p.y, p.angle, '#ff9d35', .80, returning, kinds[ant.variant % kinds.length]);
+        drawAntAt(
+          p.x, p.y, p.angle,
+          '#ff9d35',
+          .80,
+          returning,
+          kinds[ant.variant % kinds.length]
+        );
+      } else if (ant.kind === 'crossCarrier') {
+        const kinds = ['cupcake', 'donut', 'cake'];
+        drawAntAt(
+          p.x, p.y, p.angle,
+          '#ffb24b',
+          .79,
+          true,
+          kinds[ant.variant % kinds.length]
+        );
       } else if (ant.kind === 'builder') {
         drawAntAt(p.x, p.y, p.angle, '#a9663c', .84, returning, 'mud');
       } else if (ant.kind === 'guard') {
-        drawAntAt(p.x, p.y, p.angle, '#63d99a', 1.00, false);
+        drawAntAt(p.x, p.y, p.angle, '#63d99a', .96, false);
+      } else if (ant.kind === 'attendant') {
+        drawAntAt(p.x, p.y, p.angle, '#e6b36a', .68, false);
       } else {
         drawAntAt(p.x, p.y, p.angle, '#ffd35a', .72, false);
       }
@@ -4512,6 +4649,7 @@
 
   document.addEventListener('keydown', handleKey, { passive: false });
   if (startGameBtn) startGameBtn.addEventListener('click', enterPlayMode);
+  if (mobileStartGameBtn) mobileStartGameBtn.addEventListener('click', enterPlayMode);
 
   nextLevelBtn.addEventListener('click', () => {
     if (currentLevel === 1 && level2Unlocked) startLevelTwo();
@@ -4648,9 +4786,6 @@
     }
 
     scanMode = !scanMode;
-    if (appMode === 'attract' && attractOverlayEl) {
-      attractOverlayEl.hidden = scanMode;
-    }
     if (scanMode) setScanHealth('good', '✓ 纯黑白扫码模式');
     else {
       lastQrVerifyAt = 0;
