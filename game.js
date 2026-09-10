@@ -49,6 +49,8 @@
   const upgradeTitleEl = document.getElementById('upgradeTitle');
   const upgradeSubtitleEl = document.getElementById('upgradeSubtitle');
   const upgradeChoicesEl = document.getElementById('upgradeChoices');
+  const attractOverlayEl = document.getElementById('attractOverlay');
+  const startGameBtn = document.getElementById('startGameBtn');
 
   const POPULATION_TARGET = 10;
   const START_POPULATION = 3;
@@ -97,6 +99,17 @@
   let speedBoostUntil = 0;
   let activeBuffLabel = '';
   let renderRequest = null;
+
+  // The page opens in an arcade-style attract mode: the colony works by itself
+  // until the visitor explicitly takes control. Attract entities never mutate
+  // campaign state and use their own RNG so the playable seeded world stays stable.
+  let appMode = 'playing';
+  let attractRngState = 0x6d2b79f5;
+  let attractAnts = [];
+  let attractResources = [];
+  let attractRoutes = [];
+  let attractIntruder = null;
+  let attractNextIntruderAt = 0;
 
   let currentLevel = 1;
   let level2Unlocked = false;
@@ -1283,7 +1296,415 @@
     return chosen;
   }
 
-  function resetGame(content, seed = null, updateAddress = true, challengeTarget = 0) {
+
+  function resetAttractRng() {
+    attractRngState = ((runSeed >>> 0) ^ 0xa341316c) >>> 0;
+    if (!attractRngState) attractRngState = 0x6d2b79f5;
+  }
+
+  function attractRandom() {
+    let x = attractRngState >>> 0;
+    x ^= x << 13;
+    x ^= x >>> 17;
+    x ^= x << 5;
+    attractRngState = x >>> 0 || 0x6d2b79f5;
+    return attractRngState / 4294967296;
+  }
+
+  function pickAttractNodes(count, near = false) {
+    if (!nest || !component.length) return [];
+    const dist = distanceMap(nest);
+    const values = [...dist.values()];
+    const maxD = values.length ? Math.max(...values) : 1;
+    const minD = near ? 2 : Math.max(5, maxD * .24);
+    const maxAllowed = near ? Math.max(5, maxD * .18) : maxD * .82;
+    const pool = component.filter(node => {
+      const d = dist.get(nodeKey(node.r, node.c));
+      return Number.isFinite(d) &&
+        d >= minD && d <= maxAllowed &&
+        !isFinderForbiddenNode(node) &&
+        !nodeTouchesProtected(node);
+    });
+
+    for (let i = pool.length - 1; i > 0; i--) {
+      const j = Math.floor(attractRandom() * (i + 1));
+      [pool[i], pool[j]] = [pool[j], pool[i]];
+    }
+
+    const picked = [];
+    const spacing = near ? 2 : Math.max(3, matrixSize * .09);
+    for (const node of pool) {
+      if (picked.every(other => Math.hypot(other.r - node.r, other.c - node.c) >= spacing)) {
+        picked.push({ ...node });
+        if (picked.length >= count) break;
+      }
+    }
+    return picked;
+  }
+
+  function makeAttractAnt(kind, path, variant = 0) {
+    if (!path || path.length < 2) return null;
+    const speeds = {
+      carrier: .040,
+      scout: .052,
+      builder: .034,
+      guard: .030
+    };
+    return {
+      kind,
+      path,
+      index: 0,
+      progress: attractRandom() * .82,
+      direction: 1,
+      speed: (speeds[kind] || .04) * (.9 + attractRandom() * .2),
+      pause: attractRandom() * 12,
+      variant
+    };
+  }
+
+  function setAttractUI() {
+    gameStateBadge.textContent = 'LIVE · 蚁穴运转中';
+    gameStateBadge.style.color = '#7bf59a';
+    chapterNumberEl.textContent = '展示模式';
+    chapterTitleEl.textContent = '活体蚁穴';
+    chapterDescEl.textContent = '在你接管之前，工蚁已经在搬运、侦察、筑巢和守卫。';
+    statLabel1El.textContent = '忙碌蚂蚁';
+    statLabel2El.textContent = '运输线路';
+    statLabel3El.textContent = '侦察蚁';
+    statLabel4El.textContent = '守卫蚁';
+    populationCountEl.textContent = String(attractAnts.length);
+    foodScoreEl.textContent = String(attractRoutes.length);
+    workerCountEl.textContent = String(attractAnts.filter(a => a.kind === 'scout').length);
+    discoveredCountEl.textContent = String(attractAnts.filter(a => a.kind === 'guard').length);
+    populationBarEl.style.width = '86%';
+    missionTextEl.textContent = '先看看这座二维码蚁穴如何自己工作。准备好后点击画面中的「开始探索」。';
+    buffTextEl.textContent = '展示中的蚂蚁不会改变正式关卡；开始后会从第1关完整重置。';
+    legendCardEl.innerHTML = `
+      <h2>蚁群正在做什么</h2>
+      <div class="legend"><span class="legend-ant worker-ant"></span><span>搬运蚁：把食物送回巢穴</span></div>
+      <div class="legend"><span style="color:#ffd766;font-size:17px">🐜</span><span>侦察蚁：探索外围通道</span></div>
+      <div class="legend"><span style="color:#9a633e;font-size:17px">🐜</span><span>筑巢蚁：搬运泥土整理巢穴</span></div>
+      <div class="legend"><span style="color:#63d99a;font-size:17px">🐜</span><span>守卫蚁：巡逻核心通道</span></div>
+      <div class="legend"><span>🍰</span><span>食物点：运输线持续往返</span></div>
+      <div class="legend"><span class="legend-nest"></span><span>绿色核心：蚁穴中心</span></div>
+    `;
+    nextLevelBtn.hidden = true;
+    biteBtn.disabled = true;
+    acidBtn.disabled = true;
+    biteBtn.classList.remove('ready');
+    acidBtn.classList.remove('ready');
+    if (mobileBiteBtn) mobileBiteBtn.disabled = true;
+    if (mobileAcidBtn) mobileAcidBtn.disabled = true;
+    setRoadmapActive(1);
+  }
+
+  function enterAttractMode() {
+    if (!qr || !component.length || !nest) return;
+    appMode = 'attract';
+    status = 'attract';
+    scanMode = false;
+    scanBtn.textContent = '扫码模式';
+    resetAttractRng();
+
+    attractAnts = [];
+    attractResources = [];
+    attractRoutes = [];
+    attractIntruder = null;
+
+    const workNodes = pickAttractNodes(9, false);
+    const guardNodes = pickAttractNodes(3, true);
+    const foodKinds = ['donut', 'cupcake', 'cake'];
+
+    workNodes.slice(0, 4).forEach((node, i) => {
+      const path = bfsPath(nest, node);
+      const ant = makeAttractAnt('carrier', path, i);
+      if (!ant) return;
+      attractAnts.push(ant);
+      attractRoutes.push({ path, kind: 'food' });
+      attractResources.push({
+        ...node,
+        kind: 'food',
+        foodKind: foodKinds[i % foodKinds.length],
+        displayCell: chooseFoodDisplayCell(node)
+      });
+    });
+
+    workNodes.slice(4, 7).forEach((node, i) => {
+      const path = bfsPath(nest, node);
+      const ant = makeAttractAnt('scout', path, i);
+      if (ant) attractAnts.push(ant);
+    });
+
+    workNodes.slice(7, 9).forEach((node, i) => {
+      const path = bfsPath(nest, node);
+      const ant = makeAttractAnt('builder', path, i);
+      if (!ant) return;
+      attractAnts.push(ant);
+      attractRoutes.push({ path, kind: 'mud' });
+      attractResources.push({ ...node, kind: 'mud' });
+    });
+
+    guardNodes.forEach((node, i) => {
+      const path = bfsPath(nest, node);
+      const ant = makeAttractAnt('guard', path, i);
+      if (ant) attractAnts.push(ant);
+    });
+
+    attractNextIntruderAt = performance.now() + 2200 + attractRandom() * 2600;
+    if (attractOverlayEl) attractOverlayEl.hidden = false;
+    if (startGameBtn) {
+      startGameBtn.textContent = friendTargetScore > 0 ? '开始好友挑战' : '开始探索';
+    }
+    document.body.classList.add('attract-mode');
+    setAttractUI();
+    requestRender();
+  }
+
+  function enterPlayMode() {
+    if (appMode !== 'attract') return;
+    const content = qrPayload || qrInput.value.trim() || 'QR Ant Colony';
+    const seed = runSeed;
+    const target = friendTargetScore;
+
+    appMode = 'playing';
+    document.body.classList.remove('attract-mode');
+    if (attractOverlayEl) attractOverlayEl.hidden = true;
+    attractAnts = [];
+    attractResources = [];
+    attractRoutes = [];
+    attractIntruder = null;
+
+    resetGame(content, seed, true, target, true);
+    showToast(
+      target > 0
+        ? `好友挑战开始 · 目标 ${target} 分`
+        : '你接管了黄色侦察蚁。去找到第一份食物！',
+      2200
+    );
+  }
+
+  function updateAttractAnt(ant, dt) {
+    if (!ant?.path?.length) return;
+    if (ant.pause > 0) {
+      ant.pause = Math.max(0, ant.pause - dt);
+      return;
+    }
+
+    ant.progress += ant.speed * dt;
+    while (ant.progress >= 1) {
+      ant.progress -= 1;
+      ant.index += ant.direction;
+
+      if (ant.index >= ant.path.length - 1) {
+        ant.index = ant.path.length - 1;
+        ant.direction = -1;
+        ant.progress = 0;
+        ant.pause = 5 + attractRandom() * 18;
+        break;
+      }
+
+      if (ant.index <= 0) {
+        ant.index = 0;
+        ant.direction = 1;
+        ant.progress = 0;
+        ant.pause = 4 + attractRandom() * 14;
+        break;
+      }
+    }
+  }
+
+  function spawnAttractIntruder(now) {
+    if (!component.length || !nest) return;
+    const dist = distanceMap(nest);
+    const far = component
+      .filter(n => {
+        const d = dist.get(nodeKey(n.r, n.c));
+        return Number.isFinite(d) && d > matrixSize * .55 && !isFinderForbiddenNode(n);
+      })
+      .sort((a, b) => (dist.get(nodeKey(b.r, b.c)) || 0) - (dist.get(nodeKey(a.r, a.c)) || 0))
+      .slice(0, 24);
+
+    if (!far.length) {
+      attractNextIntruderAt = now + 5000;
+      return;
+    }
+
+    const start = far[Math.floor(attractRandom() * far.length)];
+    const path = bfsPath(start, nest);
+    if (!path || path.length < 5) {
+      attractNextIntruderAt = now + 4000;
+      return;
+    }
+
+    attractIntruder = {
+      path,
+      index: 0,
+      progress: 0,
+      direction: 1,
+      speed: .034,
+      retreating: false,
+      turnAt: Math.max(2, Math.floor(path.length * (.62 + attractRandom() * .12)))
+    };
+  }
+
+  function updateAttractIntruder(now, dt) {
+    if (!attractIntruder) {
+      if (now >= attractNextIntruderAt) spawnAttractIntruder(now);
+      return;
+    }
+
+    const ant = attractIntruder;
+    ant.progress += ant.speed * dt;
+    while (ant.progress >= 1) {
+      ant.progress -= 1;
+      ant.index += ant.direction;
+
+      if (!ant.retreating && ant.index >= ant.turnAt) {
+        ant.retreating = true;
+        ant.direction = -1;
+        ant.progress = 0;
+        break;
+      }
+
+      if (ant.retreating && ant.index <= 0) {
+        attractIntruder = null;
+        attractNextIntruderAt = now + 3600 + attractRandom() * 4200;
+        break;
+      }
+    }
+  }
+
+  function updateAttractMode(now, dt) {
+    attractAnts.forEach(ant => updateAttractAnt(ant, dt));
+    updateAttractIntruder(now, dt);
+  }
+
+  function drawAttractRoutes() {
+    const { step } = boardMetrics();
+    ctx.save();
+    attractRoutes.forEach((route, routeIndex) => {
+      ctx.fillStyle = route.kind === 'mud'
+        ? 'rgba(162, 100, 57, .34)'
+        : routeIndex % 2
+          ? 'rgba(255, 177, 64, .34)'
+          : 'rgba(107, 220, 126, .32)';
+      route.path.forEach((node, i) => {
+        if (i % 3) return;
+        const p = nodeXY(node);
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, Math.max(1.2, step * .065), 0, Math.PI * 2);
+        ctx.fill();
+      });
+    });
+    ctx.restore();
+  }
+
+  function attractResourcePosition(resource) {
+    if (!resource.displayCell) return nodeXY(resource);
+    const { step, offset } = boardMetrics();
+    return {
+      x: offset + (resource.displayCell.c + .5) * step,
+      y: offset + (resource.displayCell.r + .5) * step
+    };
+  }
+
+  function drawAttractResources() {
+    const { step } = boardMetrics();
+    attractResources.forEach(resource => {
+      const p = attractResourcePosition(resource);
+      ctx.save();
+      if (resource.kind === 'food') {
+        const icons = { donut: '🍩', cupcake: '🧁', cake: '🍰' };
+        ctx.font = `${Math.max(16, step * .86)}px "Apple Color Emoji","Segoe UI Emoji","Noto Color Emoji",sans-serif`;
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.shadowColor = 'rgba(255,176,82,.55)';
+        ctx.shadowBlur = Math.max(4, step * .2);
+        ctx.fillText(icons[resource.foodKind] || '🍩', p.x, p.y);
+      } else {
+        ctx.fillStyle = '#8a542f';
+        ctx.strokeStyle = '#4d2b18';
+        ctx.lineWidth = Math.max(1, step * .05);
+        [[-.18,.08],[.12,.1],[0,-.12]].forEach(([dx,dy], i) => {
+          ctx.beginPath();
+          ctx.arc(
+            p.x + dx * step,
+            p.y + dy * step,
+            Math.max(3, step * (.14 + i * .015)),
+            0,
+            Math.PI * 2
+          );
+          ctx.fill();
+          ctx.stroke();
+        });
+      }
+      ctx.restore();
+    });
+  }
+
+  function drawAttractNestDetails(now) {
+    const p = nodeXY(nest);
+    const { step } = boardMetrics();
+    const pulse = .9 + Math.sin(now / 420) * .08;
+    ctx.save();
+
+    // Eggs / larvae cache: tiny, readable life around the nest without covering
+    // the QR finder regions (the protection layer is still drawn afterwards).
+    ctx.fillStyle = 'rgba(255,247,218,.92)';
+    [[-.46,-.20],[-.34,.08],[-.18,-.37]].forEach(([dx, dy], i) => {
+      ctx.beginPath();
+      ctx.ellipse(
+        p.x + dx * step,
+        p.y + dy * step,
+        Math.max(2.2, step * .105) * pulse,
+        Math.max(1.4, step * .065),
+        i * .5,
+        0,
+        Math.PI * 2
+      );
+      ctx.fill();
+    });
+
+    ctx.fillStyle = '#ffb23f';
+    [[.34,.24],[.48,.05],[.22,.40]].forEach(([dx, dy]) => {
+      ctx.beginPath();
+      ctx.arc(p.x + dx * step, p.y + dy * step, Math.max(1.8, step * .075), 0, Math.PI * 2);
+      ctx.fill();
+    });
+    ctx.restore();
+  }
+
+  function drawAttractAnts() {
+    attractAnts.forEach(ant => {
+      const p = workerPosition(ant);
+      const returning = ant.direction === -1;
+      if (ant.kind === 'carrier') {
+        const kinds = ['donut', 'cupcake', 'cake'];
+        drawAntAt(p.x, p.y, p.angle, '#ff9d35', .80, returning, kinds[ant.variant % kinds.length]);
+      } else if (ant.kind === 'builder') {
+        drawAntAt(p.x, p.y, p.angle, '#a9663c', .84, returning, 'mud');
+      } else if (ant.kind === 'guard') {
+        drawAntAt(p.x, p.y, p.angle, '#63d99a', 1.00, false);
+      } else {
+        drawAntAt(p.x, p.y, p.angle, '#ffd35a', .72, false);
+      }
+    });
+
+    if (attractIntruder) {
+      const p = workerPosition(attractIntruder);
+      drawAntAt(p.x, p.y, p.angle, '#ef6256', .90, false);
+    }
+  }
+
+  function drawAttractScene(now = performance.now()) {
+    drawAttractRoutes();
+    drawAttractResources();
+    drawNest();
+    drawAttractNestDetails(now);
+    drawAttractAnts();
+  }
+
+  function resetGame(content, seed = null, updateAddress = true, challengeTarget = 0, showStartToast = true) {
     if (typeof qrcode !== 'function') {
       showToast('二维码库加载失败，请检查网络后刷新。', 3200);
       return;
@@ -1407,7 +1828,9 @@
     gameStateBadge.style.color = '';
     missionTextEl.textContent = '先熟悉移动，去白色通道里找到第一份食物。';
     updateUI();
-    showToast(`第1关：第一顿饭 · 世界种子 ${(runSeed >>> 0).toString(36).toUpperCase()}`, 2800);
+    if (showStartToast) {
+      showToast(`第1关：第一顿饭 · 世界种子 ${(runSeed >>> 0).toString(36).toUpperCase()}`, 2800);
+    }
     if (updateAddress) syncChallengeUrl();
     requestRender();
   }
@@ -3972,6 +4395,12 @@
     renderQR(scanMode);
     if (scanMode) return;
 
+    if (appMode === 'attract') {
+      drawAttractScene();
+      drawQRProtection();
+      return;
+    }
+
     if (currentLevel === 2) {
       drawFlood();
       drawMudSources();
@@ -4032,7 +4461,9 @@
     const dt = Math.min(2, (now - lastFrame) / 16.6667);
     lastFrame = now;
 
-    if (status === 'playing') {
+    if (appMode === 'attract') {
+      updateAttractMode(now, dt);
+    } else if (status === 'playing') {
       if (currentLevel === 2) updateLevelTwo(now, dt);
       else if (currentLevel === 3) updateLevelThree(now, dt);
       else if (currentLevel === 4) updateLevelFour(now, dt);
@@ -4050,6 +4481,8 @@
   }
 
   function handleKey(e) {
+    if (e.target && ['INPUT', 'TEXTAREA'].includes(e.target.tagName)) return;
+
     const map = {
       ArrowUp: 'up',
       KeyW: 'up',
@@ -4063,6 +4496,7 @@
 
     if (map[e.code]) {
       e.preventDefault();
+      if (appMode === 'attract') enterPlayMode();
       movePlayer(map[e.code]);
       return;
     }
@@ -4077,6 +4511,7 @@
   }
 
   document.addEventListener('keydown', handleKey, { passive: false });
+  if (startGameBtn) startGameBtn.addEventListener('click', enterPlayMode);
 
   nextLevelBtn.addEventListener('click', () => {
     if (currentLevel === 1 && level2Unlocked) startLevelTwo();
@@ -4167,11 +4602,16 @@
   });
 
   generateBtn.addEventListener('click', () => {
-    resetGame(qrInput.value.trim() || 'QR Ant Colony', freshSeed(), true, 0);
+    const stayAttract = appMode === 'attract';
+    resetGame(qrInput.value.trim() || 'QR Ant Colony', freshSeed(), true, 0, !stayAttract);
+    if (stayAttract) enterAttractMode();
   });
 
   qrInput.addEventListener('keydown', e => {
-    if (e.key === 'Enter') resetGame(qrInput.value.trim() || 'QR Ant Colony', freshSeed(), true, 0);
+    if (e.key !== 'Enter') return;
+    const stayAttract = appMode === 'attract';
+    resetGame(qrInput.value.trim() || 'QR Ant Colony', freshSeed(), true, 0, !stayAttract);
+    if (stayAttract) enterAttractMode();
   });
 
   scanBtn.addEventListener('click', () => {
@@ -4208,6 +4648,9 @@
     }
 
     scanMode = !scanMode;
+    if (appMode === 'attract' && attractOverlayEl) {
+      attractOverlayEl.hidden = scanMode;
+    }
     if (scanMode) setScanHealth('good', '✓ 纯黑白扫码模式');
     else {
       lastQrVerifyAt = 0;
@@ -4230,8 +4673,10 @@
       sharedContent,
       Number.isFinite(sharedSeed) ? sharedSeed : hashSeed(sharedContent),
       false,
-      sharedTarget
+      sharedTarget,
+      false
     );
+    enterAttractMode();
     showToast(
       sharedTarget > 0
         ? `好友挑战已载入：同地图目标 ${sharedTarget} 分！`
@@ -4239,7 +4684,8 @@
       3200
     );
   } else {
-    resetGame(qrInput.value, freshSeed(), true, 0);
+    resetGame(qrInput.value, freshSeed(), true, 0, false);
+    enterAttractMode();
   }
   requestAnimationFrame(loop);
 })();
