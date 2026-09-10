@@ -73,17 +73,6 @@
         <div class="board-wrap">
           <canvas id="gameCanvas" width="900" height="900" aria-label="二维码蚁穴游戏画面"></canvas>
           <div id="toast" class="toast" role="status" aria-live="polite"></div>
-
-          <div id="attractOverlay" class="attract-overlay">
-            <div class="attract-live"><span class="live-dot"></span><span>COLONY LIVE</span></div>
-            <div class="attract-bottom">
-              <div class="attract-copy">
-                <strong>这座二维码蚁穴正在自己运转</strong>
-                <span>搬运 · 侦察 · 筑巢 · 守卫</span>
-              </div>
-              <button id="startGameBtn" class="attract-start" type="button">开始探索</button>
-            </div>
-          </div>
         </div>
       </div>
 
@@ -94,6 +83,7 @@
             <span class="key-tip">WASD / ↑↓←→</span>
           </div>
           <p id="missionText">先熟悉移动，去白色通道里找到第一份食物。</p>
+          <button id="startGameBtn" class="attract-panel-start" type="button" hidden>开始探索</button>
           <button id="nextLevelBtn" class="level-next" hidden>进入第2关：暴雨来了 →</button>
         </div>
 
@@ -155,6 +145,7 @@
     </div>
 
     <section class="mobile-controls" aria-label="移动控制">
+      <button id="mobileStartGameBtn" class="mobile-start-game" type="button" hidden>开始探索</button>
       <div class="dpad">
         <button data-dir="up" aria-label="向上">▲</button>
         <div>
