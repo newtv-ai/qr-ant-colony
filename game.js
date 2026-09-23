@@ -2733,6 +2733,7 @@
     mudWorkers = mudWorkers.filter((_, i) => !dead.has(i));
 
     if (
+      mudDiscovered > 0 &&
       !reportedMudSource &&
       mudWorkers.length === 0 &&
       mudSources.some(s => !s.discovered && s.units > 0) &&
